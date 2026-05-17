@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -34,6 +35,10 @@ from ...transports.base import Msg
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+SPA_DIST = FRONTEND_DIR / "dist"
+SPA_INDEX = SPA_DIST / "index.html"
+SPA_ASSETS = SPA_DIST / "assets"
 
 
 # ----- response models ------------------------------------------------------
@@ -95,8 +100,16 @@ def create_app(bus: Bus | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    @fastapi_app.get("/", response_class=HTMLResponse)
-    async def index(request: Request) -> HTMLResponse:
+    spa_built = SPA_INDEX.exists() and SPA_ASSETS.exists()
+    if spa_built:
+        fastapi_app.mount(
+            "/assets", StaticFiles(directory=str(SPA_ASSETS)), name="spa-assets"
+        )
+
+    @fastapi_app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def index(request: Request):  # noqa: ANN202 — union return tickles Pydantic
+        if spa_built:
+            return FileResponse(SPA_INDEX, media_type="text/html")
         return templates.TemplateResponse(
             request, "index.html", {"title": "AetherBus Replay"}
         )

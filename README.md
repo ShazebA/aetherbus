@@ -107,14 +107,26 @@ asyncio.run(main())
 
 > Events larger than 4 KB serialized must use `dataref` instead of inline payloads. As of M3 the resolver SDK supports `file://`, `https://`, `mcp://`, and `git://` schemes out of the box (`mcp://` and `git://` need the `[mcp]` extra and a `git` binary on `$PATH` respectively).
 
-## Replay UI (M5a — minimal viewer)
+## Replay UI
 
 ```bash
 docker compose up -d nats
-aetherbus-ui serve        # http://localhost:7798
+(cd src/aetherbus/replay_ui/frontend && npm install && npm run build)   # once
+aetherbus-ui serve                                                       # http://localhost:7798
 ```
 
-A loopback-only FastAPI backend exposes the bus over REST + WebSocket. The current page is a single Jinja template — the React SPA lands in M5b. Programmatic replay also works:
+A loopback-only FastAPI backend exposes the bus over REST + WebSocket; the React SPA (Vite + TanStack Query + Tailwind) ships in `src/aetherbus/replay_ui/frontend/`. The first `npm install + build` populates `dist/`; the backend serves it. **Without the build**, the same backend falls back to a single Jinja viewer so you still have something to look at.
+
+For frontend dev:
+
+```bash
+aetherbus-ui serve --port 7798                       # terminal A
+cd src/aetherbus/replay_ui/frontend && npm run dev    # terminal B (http://localhost:5173)
+```
+
+Vite proxies `/api` and `/api/*/tail` (WebSocket) to FastAPI so the SPA hot-reloads while the backend keeps running.
+
+Programmatic replay also works:
 
 ```python
 async with Bus.from_env() as bus:
@@ -144,7 +156,7 @@ See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Targ
 - ✅ M2 — Core (`Bus`, `Event`, outbox, tests)
 - ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
 - ✅ M4 — Kafka transport (`transport_type: kafka`; same `Bus` API, same conformance suite)
-- 🚧 M5 — Replay UI — **M5a backend lives**; React SPA + sandbox replay follow
+- 🚧 M5 — Replay UI — **M5a backend + M5b React SPA + Kafka history all live**; sandbox replay execution + README GIF in M5c
 - M6 — Framework adapters (LangGraph, CrewAI, OpenAI Agents SDK)
 - M7 — Polish + launch
 

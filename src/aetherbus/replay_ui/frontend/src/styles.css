@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+}
+
+@layer utilities {
+  .indicator-live {
+    @apply bg-ok;
+    box-shadow: 0 0 8px theme("colors.ok");
+  }
+}
+
+/* Keep dialog backdrop matching the rest of the dark surface. */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
