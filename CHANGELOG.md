@@ -8,38 +8,51 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### Tooling
-- `.gitignore` excludes a local `.mcp.json` — the convenient way to wire `aetherbus-mcp` into Claude Code, but the command path is currently absolute. Stays out of git until we ship the binary in a way that works from `PATH` on any box.
+(no entries yet — next milestone is M4 Kafka transport per PRD §7.1)
 
-### M3b — `https://` + MCP server adapter (in flight on `feature/m3-resolvers-mcp`)
+---
 
-**Added**
+## M3 — Resolvers + MCP adapter — 2026-05-17
+
+Merged in three slices: M3a + M3b via [PR #3](https://github.com/ShazebA/aetherbus/pull/3) (`1147df8`), M3c on a follow-up PR.
+
+### Added
+
+**Resolver SDK and built-ins**
+- `aetherbus.resolver` package — `Resolver` Protocol, `register_resolver` decorator, `resolve_uri` with TTL cache + per-URI single-flight (concurrent resolves of the same URI share one fetch). `ResolverError` carries actionable install hints for missing schemes.
+- `file://` resolver — RFC 8089 (empty netloc or `localhost`); off-loop reads via `asyncio.to_thread`.
 - `https://` resolver — httpx-backed; optional `AETHERBUS_HTTPS_AUTH` bearer.
-- `aetherbus.mcp_adapter.AetherBusMCPServer` — bridges bus topics to MCP resources at `aetherbus://<topic>`. On every event the server pushes `notifications/resources/updated`; clients pull via `resources/read` (poke-then-read, see ADR-004).
-- `aetherbus-mcp serve --topic <topic>` CLI entry, wired through Typer. Logs to stderr (stdout is the MCP transport). Documented snippet for `claude_desktop_config.json` in the CLI help.
-- ADR-004 — MCP poke-then-read semantics.
-- 5 new unit tests for `https://` (success, 404, bearer header on/off, transport errors via `respx`); 3 for the MCP adapter (event → latest + notification, latched without session, broken-session safety).
-- `respx` added to dev deps; `mcp>=1.0` moved into dev so the adapter tests run by default.
+- `mcp://` client resolver — reads MCP resources from a configured server. `register_mcp_server(name, "stdio:///cmd ..." | "https://.../sse" | argv)` populates the per-server registry; sessions open lazily and live for the process. Self-referential round-trip works: events published to the bus can carry `dataref="mcp://aetherbus/aetherbus://<topic>"` and resolve through our own MCP server adapter.
+- `git://` resolver — `git://<owner>/<repo>[@<sha>]:<path>`. Bare clones cached under `~/.cache/aetherbus/git` (override via `AETHERBUS_GIT_CACHE`); per-repo origin URL override via `AETHERBUS_GIT_URL_<OWNER>_<REPO>` for tests / self-hosted forges. Subprocess `git`, no pygit2 dep.
+- Third-party resolver discovery via the `aetherbus.resolvers` entry-point group; failures log a WARNING rather than failing package import.
 
-**Changed**
-- `aetherbus.resolver.__init__` imports `https` alongside `file` so both built-ins register on package import.
+**MCP server adapter**
+- `aetherbus.mcp_adapter.AetherBusMCPServer` — bridges bus topics to MCP resources at `aetherbus://<topic>`. On every event the server emits `notifications/resources/updated`; clients pull via `resources/read` (**poke-then-read**, see ADR-004).
+- `aetherbus-mcp serve --topic <topic>` CLI (Typer). Logs to stderr (stdout is the MCP transport). Docstring carries the Claude Desktop config snippet. `aetherbus-mcp version` subcommand prevents Typer from collapsing the single command.
+- `.mcp.json` for project-level Claude Code integration (gitignored — command path is currently absolute).
 
-**Implementation notes**
-- The MCP SDK doesn't expose the active `ServerSession` outside a request context, so we replicate `mcp.server.lowlevel.Server.run` (~25 LOC) to capture it. Couples to a single-underscore SDK method (`Server._handle_message`); pinned to `mcp>=1.0`. Move to a public hook when the SDK offers one.
-
-### M3a — Resolver SDK + `file://` (in flight on `feature/m3-resolvers-mcp`)
-
-**Added**
-- `aetherbus.resolver` package: `Resolver` Protocol, `register_resolver` decorator, `resolve_uri` with TTL cache + per-URI single-flight (concurrent resolves of the same URI share one fetch), `ResolverError` with actionable install hints for missing schemes.
-- `file://` resolver — RFC 8089 (empty netloc or `localhost` only); off-loop reads via `asyncio.to_thread` so large payloads don't block the event loop.
-- Third-party resolver discovery via the `aetherbus.resolvers` entry-point group; failures during load log a WARNING rather than failing import.
-- Tests: 13 unit tests covering registry, cache, single-flight, error-not-cached, file roundtrip, and `Event.resolve()` dataref paths (inline JSON, model validation, octet-stream raw bytes).
-
-**Changed**
+**Event wiring**
 - `Event.resolve()` now actually fetches `dataref` payloads via the resolver SDK instead of raising `NotImplementedError`. JSON content-types auto-parse; `as_=Model` validates via `model_validate_json`; other content-types return raw bytes.
 
-**Removed**
-- Dropped the `[project.entry-points."aetherbus.resolvers"]` block from `pyproject.toml` — those entries pointed at modules that didn't exist yet. Built-ins register via direct import; the entry-point group is for third-party plugins.
+**Examples and docs**
+- `examples/poke.py` — one-event publisher used to drive the MCP wedge demo.
+- README's top section now leads with the wedge demo (transcript of Claude reading a bus event as an MCP resource).
+- **ADR-004** — MCP poke-then-read semantics (spec alignment, client-controlled rate, pointer-by-default keeps the MCP transport thin).
+
+**Tests**
+- 42 new unit tests across the slice (resolver registry, cache, single-flight, error-not-cached, file/https/git/mcp paths, `Event.resolve()` dataref handling, MCP adapter wiring including broken-session safety). Total at end of M3: **67 unit tests, all green**, ruff clean.
+
+### Changed
+- `bus.replay()` still stubs to `NotImplementedError` pointing at M5 (unchanged from M2; called out because M3 didn't ship it either).
+
+### Removed
+- Dropped the stale `[project.entry-points."aetherbus.resolvers"]` block from `pyproject.toml` — those entries referenced modules that didn't exist yet. Built-ins register via direct import; the entry-point group is for third-party plugins.
+
+### Fixed
+- `aetherbus-mcp` Typer app gained a `version` subcommand so `serve` stays a subcommand (single-command Typer apps collapse to root invocation otherwise).
+
+### Implementation notes
+- The MCP SDK doesn't expose the active `ServerSession` outside a request context, so the adapter mirrors `mcp.server.lowlevel.Server.run` (~25 LOC) to capture it. Couples to a single-underscore SDK method (`Server._handle_message`); pinned to `mcp>=1.0`. Move to a public hook the moment the SDK offers one.
 
 ---
 

@@ -15,8 +15,13 @@ Built-ins land here on import. Third-party resolvers register via the
 from __future__ import annotations
 
 # Import built-ins so their @register_resolver decorators run.
+# `file` and `https` are stdlib + httpx (always available); `git` needs only
+# the `git` binary on $PATH; `mcp` needs the optional [mcp] extra at fetch
+# time but its registration here is dep-free.
 from . import file as _file  # noqa: F401 — import for side effect
+from . import git as _git  # noqa: F401 — import for side effect
 from . import https as _https  # noqa: F401 — import for side effect
+from . import mcp as _mcp  # noqa: F401 — import for side effect
 from .base import (
     Resolver,
     ResolverError,
