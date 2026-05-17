@@ -3,6 +3,9 @@
 See PRD_AetherBus.md for the v1 specification.
 """
 
-__version__ = "0.0.0"
+from .bus import Bus
+from .event import Event, EventPayload, Handler
 
-__all__ = ["__version__"]
+__version__ = "0.1.0"
+
+__all__ = ["Bus", "Event", "EventPayload", "Handler", "__version__"]
