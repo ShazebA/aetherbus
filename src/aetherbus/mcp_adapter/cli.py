@@ -82,6 +82,14 @@ def serve(
     asyncio.run(server.run_stdio())
 
 
+@app.command()
+def version() -> None:
+    """Print the installed aetherbus version."""
+    from .. import __version__
+
+    typer.echo(__version__)
+
+
 def main() -> None:  # pragma: no cover — wired through pyproject scripts
     app()
 
