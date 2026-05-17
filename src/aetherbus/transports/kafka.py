@@ -175,19 +175,88 @@ class KafkaTransport:
         until: datetime | None = None,
         idle_timeout: float = 1.0,
     ) -> AsyncIterator[Msg]:
-        """Replay history is stubbed on Kafka in M5a — lands in a later slice.
+        """Iterate stored records for ``topic`` using ``offsets_for_times`` + seek.
 
-        Kafka has the primitives (offsets_for_times + seek + an end-of-stream
-        sentinel via end_offsets), but the M5a backend only needs NATS replay
-        for the Replay UI demo. Raises so callers get a clear signal.
+        Uses a fresh consumer (no group id, no commits) so the read is
+        non-destructive. Stops when every assigned partition has reached its
+        snapshot end-offset, or when ``until`` is exceeded, or after one
+        ``idle_timeout`` window with no new records.
         """
-        raise NotImplementedError(
-            "Kafka history() lands after M5a — use the NATS transport for replay "
-            "until then, or open a PR with the offsets_for_times implementation."
+        # Fresh group id keeps reads non-destructive and isolated from
+        # production consumers. uuid4 is fine — we discard on close.
+        import uuid
+
+        async def _noop() -> None:
+            return None
+
+        consumer = AIOKafkaConsumer(
+            topic,
+            bootstrap_servers=self._bootstrap,
+            group_id=f"aetherbus-history-{uuid.uuid4().hex[:8]}",
+            enable_auto_commit=False,
+            auto_offset_reset="earliest",
         )
-        # The yield below is unreachable but tells the type checker that this
-        # is an async generator, not a coroutine.
-        yield  # pragma: no cover
+        try:
+            await consumer.start()
+        except KafkaError as e:
+            raise TransportError(f"history start failed for {topic}: {e}") from e
+
+        try:
+            # Wait briefly for partition assignment.
+            for _ in range(50):
+                if consumer.assignment():
+                    break
+                await asyncio.sleep(0.05)
+            partitions = list(consumer.assignment())
+            if not partitions:
+                return
+
+            end_offsets = await consumer.end_offsets(partitions)
+            if since is not None:
+                ts_ms = int(since.timestamp() * 1000)
+                starts = await consumer.offsets_for_times({tp: ts_ms for tp in partitions})
+                for tp, ot in starts.items():
+                    if ot is not None:
+                        consumer.seek(tp, ot.offset)
+                    else:
+                        # No record at-or-after `since` on this partition; jump
+                        # to its end so done-detection terminates immediately.
+                        consumer.seek(tp, end_offsets[tp])
+
+            until_ms = int(until.timestamp() * 1000) if until is not None else None
+
+            while True:
+                # Done when every partition is at-or-past its snapshot end.
+                positions = {tp: consumer.position(tp) for tp in partitions}
+                if all(positions[tp] >= end_offsets[tp] for tp in partitions):
+                    return
+
+                batch = await consumer.getmany(
+                    timeout_ms=int(idle_timeout * 1000), max_records=64
+                )
+                if not batch:
+                    return  # idle window with nothing to read — caught up
+
+                for _tp, records in batch.items():
+                    for record in records:
+                        if until_ms is not None and record.timestamp is not None:
+                            if record.timestamp > until_ms:
+                                return
+                        headers = {
+                            k: (v.decode("utf-8") if isinstance(v, bytes) else v)
+                            for k, v in (record.headers or [])
+                        }
+                        yield Msg(
+                            data=record.value,
+                            headers=headers,
+                            _ack_fn=_noop,
+                            _nack_fn=_noop,
+                        )
+        finally:
+            try:
+                await consumer.stop()
+            except Exception:
+                logger.exception("kafka history: error stopping consumer")
 
 
 def _has_wildcard(subject: str) -> bool:

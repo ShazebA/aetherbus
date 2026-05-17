@@ -73,6 +73,27 @@ async def test_queue_group_exactly_one_consumer(bus_factory, topic_ns) -> None:
 
 
 @pytest.mark.asyncio
+async def test_bus_replay_iterates_history(bus_factory, topic_ns) -> None:
+    """``bus.replay()`` yields stored events on both NATS and Kafka."""
+    topic = f"{topic_ns}.history.v1"
+
+    pub_bus = bus_factory()
+    async with pub_bus:
+        for n in range(4):
+            await pub_bus.publish(topic, payload={"n": n})
+
+    sub_bus = bus_factory()
+    seen: list[int] = []
+    async with sub_bus:
+        async for ev in sub_bus.replay(topic, idle_timeout=2.0):
+            seen.append(ev.inline_data["n"])
+            if len(seen) >= 4:
+                break
+
+    assert sorted(seen) == [0, 1, 2, 3]
+
+
+@pytest.mark.asyncio
 async def test_replay_from_earliest(bus_factory, topic_ns) -> None:
     # Publish first (with a transient bus), then subscribe with replay_from=earliest.
     # The shared stream covers `test.>`; the unique topic_ns keeps this test's

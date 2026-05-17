@@ -50,3 +50,4 @@ site/
 node_modules/
 src/aetherbus/replay_ui/frontend/dist/
 src/aetherbus/replay_ui/frontend/.vite/
+*.tsbuildinfo

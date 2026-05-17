@@ -8,7 +8,28 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### M5a — Replay UI backend + `bus.replay()` (in flight on `feature/m5a-replay-ui-backend`)
+### M5b — React SPA + Kafka `history()` (in flight on `feature/m5b-react-spa`)
+
+**Added**
+- `src/aetherbus/replay_ui/frontend/` — Vite + React 18 + TypeScript SPA. Hand-rolled UI components (button, badge, input, dialog) styled with Tailwind in the same dark palette as the M5a Jinja viewer; no shadcn CLI / Radix / cva to keep the dep tree small.
+- TanStack Query hooks in `src/api.ts` for `/api/streams`, `/api/streams/{name}/events`, `/api/events/{id}`, and the replay-dry-run mutation.
+- Live tail via WebSocket — opens `/api/streams/{name}/tail`, prepends events (capped at 200) into the table; status pill in the header reflects connection state.
+- Vite dev proxy (`/api` → `localhost:7798`) so the frontend hot-reloads against a running backend.
+- Kafka `Transport.history()` implementation — `offsets_for_times` + per-partition seek + end-of-snapshot detection via `end_offsets`. Replaces the M5a `NotImplementedError` stub. Reads are non-destructive (fresh consumer group, no commits).
+- Conformance test: `bus.replay()` iterates history on both transports — adds 1 test under each transport param, so 2 new integration tests.
+
+**Changed**
+- `replay_ui.backend.app` probes `frontend/dist/` at startup; serves the SPA when present, falls back to the M5a Jinja template otherwise.
+
+**Implementation notes**
+- `dist/` is gitignored — built once locally via `npm run build`. Bundling into the Python wheel via a hatch hook lands in M5c.
+- The SPA is intentionally one-page-app simple. Stream detail page lives in `App.tsx`; provenance graph, schemas, trace pages all M5c.
+
+---
+
+---
+
+## M5a — Replay UI backend + `bus.replay()` — 2026-05-17 (merged via [PR #6](https://github.com/ShazebA/aetherbus/pull/6))
 
 **Added**
 - `bus.replay(topic, since=, until=, into=, idle_timeout=)` — async generator over stored events. Pass `into=other_bus` to re-emit raw envelope bytes onto a sandbox bus (ids, timestamps, correlation ids preserved). Replaces the M2 `NotImplementedError` stub.
