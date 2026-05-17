@@ -24,6 +24,24 @@ def _sanitize(name: str) -> str:
     return _NAME_DISALLOWED.sub("_", name)[:200]
 
 
+def _build_transport(settings: Settings) -> Transport:
+    """Resolve ``settings.transport_type`` to a concrete Transport instance."""
+    kind = settings.transport_type
+    if kind == "nats":
+        return NATSTransport(settings.transport_url)
+    if kind == "kafka":
+        try:
+            from .transports.kafka import KafkaTransport
+        except ImportError as e:
+            raise ImportError(
+                "Kafka transport requires the [kafka] extra: pip install 'aetherbus[kafka]'"
+            ) from e
+        return KafkaTransport(settings.transport_url)
+    raise ValueError(
+        f"unknown transport_type {kind!r}; expected 'nats' or 'kafka'"
+    )
+
+
 @dataclass
 class _Registration:
     topic: str
@@ -39,7 +57,7 @@ class Bus:
 
     def __init__(self, settings: Settings, transport: Transport | None = None) -> None:
         self._settings = settings
-        self._transport: Transport = transport or NATSTransport(settings.transport_url)
+        self._transport: Transport = transport or _build_transport(settings)
         self._regs: list[_Registration] = []
         self._schemas: dict[str, type[EventPayload]] = {}
         self._outbox = Outbox(

@@ -38,10 +38,19 @@ pip install -e ".[dev]"
 ## Run a broker
 
 ```bash
-docker compose up -d nats
+docker compose up -d nats              # default
+# or
+docker compose up -d kafka             # if you want the Kafka path
 ```
 
-NATS JetStream listens on `localhost:4222`. Stop with `docker compose down`.
+NATS JetStream listens on `localhost:4222`, Kafka on `localhost:9092`. Stop with `docker compose down`.
+
+Switch transports without changing any agent code:
+
+```python
+Bus(Settings.from_env())                                   # nats:// by default
+Bus(Settings(transport_type="kafka", transport_url="localhost:9092"))
+```
 
 ## Quickstart
 
@@ -117,7 +126,7 @@ See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Targ
 - ✅ M1 — Spike (NATS + CloudEvents publish/subscribe) → see [examples/spike.py](examples/spike.py)
 - ✅ M2 — Core (`Bus`, `Event`, outbox, tests)
 - ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
-- M4 — Kafka transport
+- ✅ M4 — Kafka transport (`transport_type: kafka`; same `Bus` API, same conformance suite)
 - M5 — Replay UI
 - M6 — Framework adapters (LangGraph, CrewAI, OpenAI Agents SDK)
 - M7 — Polish + launch

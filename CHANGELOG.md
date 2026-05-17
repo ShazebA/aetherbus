@@ -8,7 +8,22 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-(no entries yet — next milestone is M4 Kafka transport per PRD §7.1)
+### M4 — Kafka transport (in flight on `feature/m4-kafka-transport`)
+
+**Added**
+- `aetherbus.transports.kafka.KafkaTransport` — `aiokafka`-backed implementation of the `Transport` Protocol. Selected when `settings.transport_type == "kafka"`. Semantic translations: topic name → Kafka topic (pass-through), `queue_group` → consumer `group_id`, `replay_from="earliest"|"latest"` → `auto_offset_reset`, `replay_from=datetime` → `offsets_for_times` + `seek`, `ack` → `commit({tp: offset+1})`, `nack` → `seek(tp, offset)`. `max_in_flight` enforced via an `asyncio.Semaphore` around dispatch (no native aiokafka knob).
+- `_build_transport(settings)` in `bus.py` — instantiates NATS or Kafka based on `settings.transport_type`. ImportError on Kafka surfaces the right `pip install 'aetherbus[kafka]'` hint.
+- `kafka` service in `docker-compose.yml` (Bitnami 3.7, KRaft mode — no ZooKeeper). `KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true` so unit-scale tests don't need explicit topic creation.
+- Integration suite parametrized over `["nats", "kafka"]` via a new `transport` fixture. `tests/integration/test_nats.py` renamed to `test_conformance.py`; the same three scenarios (roundtrip, queue-group exactly-one, replay-from-earliest) now run against both transports — 6 integration tests total. Kafka branch skips when `AETHERBUS_TEST_KAFKA_URL` isn't set so the NATS-only flow stays green for contributors without a Kafka container.
+- 5 new unit tests for transport selection + Kafka helpers (`_has_wildcard`, `_normalize_url`).
+
+**Changed**
+- `aiokafka>=0.10` promoted to `dev` extras alongside `[kafka]` so the conformance tests run by default.
+- README explains how to switch transports without touching agent code; updated docker-compose section covers both brokers.
+
+**Implementation notes**
+- `ensure_stream` is a no-op for wildcard subjects on Kafka (Kafka has no multi-subject container). Concrete topics get explicit `create_topics` with tolerance for `TopicAlreadyExistsError`; the rest rely on broker auto-create.
+- `nack` semantics on Kafka are `seek(tp, msg.offset)` — the next poll re-fetches from the same offset. Buffered records on other partitions aren't affected.
 
 ---
 
