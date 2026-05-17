@@ -98,6 +98,16 @@ Architecture decisions go in `docs/architecture/adrs/` as `NNNN-title.md`. Open 
 - SemVer. v0.x while the API churns; v1.0.0 gated on a stable MCP adapter.
 - Releases via tag → GitHub Action → PyPI.
 
+### Branching workflow
+- **`main` is protected.** Never commit directly to `main`, even for tiny changes (typos, dependency bumps, doc tweaks). Always branch.
+- **Every new feature gets a branch:** `feature/<slug>` (e.g. `feature/m1-spike`, `feature/replay-ui`). Slug is short, ASCII, kebab-case.
+- **Every feature branch has a plan file** at `~/.claude/plans/<slug>.md`. Plan mode creates this automatically (`/plan` or by entering plan mode on a new feature). The plan file is **not committed** — it stays local. Treat it as the working agreement for that branch.
+- Workflow at the start of a feature:
+  1. Enter plan mode and write the plan to `~/.claude/plans/<slug>.md`.
+  2. `git checkout -b feature/<slug>` from an up-to-date `main`.
+  3. Implement against the plan; update the plan file if scope shifts.
+  4. Open a PR back to `main` when done.
+
 ## Working with Claude on this repo
 
 - **Read the PRD first** for any non-trivial task. Section 5 (Architecture) and 6 (API) are the most load-bearing.
