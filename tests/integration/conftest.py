@@ -14,11 +14,14 @@ import pytest
 from aetherbus import Bus
 from aetherbus.config import Settings
 
-# One stream covers the whole session — JetStream rejects overlapping subject
-# claims across streams, so we share. Tests isolate via unique topic prefixes
-# (see `topic_ns` below) so consumer `filter_subject` keeps them apart.
+# Session-shared NATS JetStream — JetStream rejects overlapping subject claims
+# across streams, so we share one. Per-test `topic_ns` keeps consumers isolated
+# via filter_subject. Kafka has no stream concept; topics are auto-created.
 SESSION_STREAM = "TEST_AETHERBUS"
 SESSION_SUBJECTS: tuple[str, ...] = ("test.>",)
+
+
+# ---------- broker reachability ---------------------------------------------
 
 
 def _wait_port(host: str, port: int, timeout: float = 30.0) -> None:
@@ -32,13 +35,10 @@ def _wait_port(host: str, port: int, timeout: float = 30.0) -> None:
     raise TimeoutError(f"{host}:{port} not reachable within {timeout}s")
 
 
-async def _clean_test_streams_async(url: str) -> None:
-    """Delete any pre-existing JetStream that overlaps our test subjects.
+# ---------- NATS fixtures ---------------------------------------------------
 
-    JetStream rejects new streams whose subjects overlap an existing one. If a
-    prior test run (or a buggy commit) leaked streams claiming `test.>`, the
-    session-shared TEST_AETHERBUS stream can't be created. We sweep them here.
-    """
+
+async def _clean_test_streams_async(url: str) -> None:
     nc = await nats.connect(url)
     try:
         js = nc.jetstream()
@@ -68,7 +68,7 @@ def _clean_test_streams(url: str) -> None:
 
 @pytest.fixture(scope="session")
 def nats_url() -> Iterator[str]:
-    """Reuse `AETHERBUS_TEST_NATS_URL`; else start a one-off NATS container."""
+    """Reuse `AETHERBUS_TEST_NATS_URL`; else spin up a one-off NATS container."""
     url = os.environ.get("AETHERBUS_TEST_NATS_URL")
     if url:
         host, port_str = url.removeprefix("nats://").split(":")
@@ -102,21 +102,66 @@ def nats_url() -> Iterator[str]:
         container.stop()
 
 
+# ---------- Kafka fixture ---------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def kafka_url() -> Iterator[str | None]:
+    """Reuse `AETHERBUS_TEST_KAFKA_URL`; skip if not set (no testcontainer fallback yet).
+
+    Kafka testcontainer images are heavy enough that we don't auto-start one —
+    bring up `docker compose up -d kafka` and set the env var.
+    """
+    url = os.environ.get("AETHERBUS_TEST_KAFKA_URL")
+    if not url:
+        yield None
+        return
+    host, port_str = url.split(":")
+    _wait_port(host, int(port_str), timeout=30)
+    yield url
+
+
+# ---------- transport parametrization ---------------------------------------
+
+
+@pytest.fixture(params=["nats", "kafka"])
+def transport(request: pytest.FixtureRequest, nats_url: str, kafka_url: str | None
+              ) -> tuple[str, str]:
+    """Parametrized fixture: every test runs against both transports.
+
+    Skips the kafka branch when `AETHERBUS_TEST_KAFKA_URL` isn't set so the
+    NATS-only flow stays green for contributors without a Kafka container.
+    """
+    if request.param == "kafka":
+        if kafka_url is None:
+            pytest.skip(
+                "AETHERBUS_TEST_KAFKA_URL not set; "
+                "run `docker compose up -d kafka` and export the URL to enable Kafka conformance"
+            )
+        return ("kafka", kafka_url)
+    return ("nats", nats_url)
+
+
+# ---------- per-test scaffolding --------------------------------------------
+
+
 @pytest.fixture
 def topic_ns() -> str:
-    """Per-test topic prefix so durables and filter_subjects don't collide."""
+    """Per-test topic prefix so durables / consumer groups / filter_subjects don't collide."""
     return f"test.{uuid.uuid4().hex[:12]}"
 
 
 @pytest.fixture
-def bus_factory(nats_url: str, tmp_path: Path):
-    """Build Buses on the shared session stream."""
+def bus_factory(transport: tuple[str, str], tmp_path: Path):
+    """Build Buses on whichever transport this test is parametrized over."""
+    kind, url = transport
     counter = {"n": 0}
 
     def _build(**override: object) -> Bus:
         counter["n"] += 1
         defaults: dict[str, object] = {
-            "transport_url": nats_url,
+            "transport_type": kind,
+            "transport_url": url,
             "outbox_path": str(tmp_path / f"ob_{counter['n']}.sqlite"),
             "stream_name": SESSION_STREAM,
             "stream_subjects": SESSION_SUBJECTS,

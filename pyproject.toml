@@ -53,6 +53,7 @@ dev = [
     "mkdocs-material>=9.5",
     "mcp>=1.0",  # exercises the MCP adapter in tests; also required for `aetherbus-mcp`
     "respx>=0.21",  # httpx mock transport for https resolver tests
+    "aiokafka>=0.10",  # Kafka transport conformance tests
 ]
 all = ["aetherbus[kafka,mcp,replay,langgraph,crewai,openai,vec,git]"]
 
