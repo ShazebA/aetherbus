@@ -2,7 +2,29 @@
 
 > Event-driven context layer for AI agents. CloudEvents over NATS/Kafka, with pointers — not payloads — and an MCP adapter so any MCP client can consume the stream.
 
-**Status:** pre-alpha. The full v1 spec lives in [PRD_AetherBus.md](PRD_AetherBus.md). M2 (core API, NATS transport, outbox, tests) is the current tip.
+**Status:** pre-alpha. The full v1 spec lives in [PRD_AetherBus.md](PRD_AetherBus.md). M3 (resolvers + MCP adapter — the strategic wedge) just landed.
+
+## The wedge — bus stream → MCP resource → any MCP client
+
+```bash
+docker compose up -d nats                                             # broker
+aetherbus-mcp serve --topic dev.aetherbus.research.finding.v1 &      # adapter
+python examples/poke.py "kafka for agents"                            # publish one event
+```
+
+Wire `aetherbus-mcp` into Claude Code's `.mcp.json` (or Claude Desktop's `claude_desktop_config.json`) and the bus stream shows up as a live MCP resource. Every published event triggers `notifications/resources/updated`; the client pulls the resolved payload via `resources/read` (poke-then-read — see [ADR-004](docs/architecture/adrs/0004-mcp-poke-then-read-semantics.md)).
+
+```
+> read the aetherbus://dev.aetherbus.research.finding.v1 resource
+Here's the latest event on dev.aetherbus.research.finding.v1:
+
+{
+  "query": "kafka for agents",
+  "summary": "claim-check works"
+}
+```
+
+That's a Claude session consuming a Kafka-style pub/sub stream **with zero AetherBus-specific code on the client side** — MCP `resources/subscribe` and `notifications/resources/updated` doing the work. The protocol gap from PRD §2.3 ("MCP has the primitive but nobody uses it") closing in real time.
 
 ## Install
 
@@ -74,7 +96,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-> M2 ships inline payloads only — `dataref` resolution arrives in M3. Events larger than 4 KB serialized will error; that's where `dataref` (and the resolver SDK) will take over.
+> Events larger than 4 KB serialized must use `dataref` instead of inline payloads. As of M3 the resolver SDK supports `file://`, `https://`, `mcp://`, and `git://` schemes out of the box (`mcp://` and `git://` need the `[mcp]` extra and a `git` binary on `$PATH` respectively).
 
 ## Develop
 
@@ -93,8 +115,8 @@ Integration tests use `testcontainers` to spin up NATS automatically; set `AETHE
 See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Target: 8 weekends to v1.
 
 - ✅ M1 — Spike (NATS + CloudEvents publish/subscribe) → see [examples/spike.py](examples/spike.py)
-- ✅ M2 — Core (`Bus`, `Event`, outbox, tests) — *this milestone*
-- M3 — Resolvers + MCP server adapter
+- ✅ M2 — Core (`Bus`, `Event`, outbox, tests)
+- ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
 - M4 — Kafka transport
 - M5 — Replay UI
 - M6 — Framework adapters (LangGraph, CrewAI, OpenAI Agents SDK)
