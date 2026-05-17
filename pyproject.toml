@@ -62,12 +62,9 @@ Homepage = "https://github.com/shazeb/aetherbus"
 Repository = "https://github.com/shazeb/aetherbus"
 Issues = "https://github.com/shazeb/aetherbus/issues"
 
-[project.entry-points."aetherbus.resolvers"]
-mcp = "aetherbus.resolver.mcp:MCPResolver"
-file = "aetherbus.resolver.file:FileResolver"
-https = "aetherbus.resolver.https:HTTPSResolver"
-git = "aetherbus.resolver.git:GitResolver"
-vec = "aetherbus.resolver.vec:VectorResolver"
+# Third-party resolvers register under the `aetherbus.resolvers` entry-point
+# group; see aetherbus.resolver._load_entry_point_resolvers. Built-ins ship as
+# direct imports inside `aetherbus.resolver.__init__`, no entry point needed.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aetherbus"]

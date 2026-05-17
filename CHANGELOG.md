@@ -8,14 +8,19 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### Added
-- `CHANGELOG.md` (this file), history backfilled.
-- `CLAUDE.md` "Changelog upkeep" rule: every commit gets an Unreleased entry.
+### M3a — Resolver SDK + `file://` (in flight on `feature/m3-resolvers-mcp`)
 
-### Fixed
-- Integration tests use one session-shared JetStream (`TEST_AETHERBUS`) + a per-test `topic_ns` fixture instead of per-test streams, avoiding `subjects overlap with an existing stream` errors from JetStream.
-- Conftest sweeps any pre-existing stream whose subjects start with `test.` at session start, surviving leftover state from earlier runs (including from the initial buggy M2 conftest that leaked streams into JetStream's data dir).
-- NATS transport queue groups: when `queue_group` is set, pass the topic-scoped durable as both the queue name and the consumer's `deliver_group` to satisfy nats-py 2.14's `queue == durable` invariant (`nats/js/client.py:376`). Previously the second subscriber in a queue group always errored on attach.
+**Added**
+- `aetherbus.resolver` package: `Resolver` Protocol, `register_resolver` decorator, `resolve_uri` with TTL cache + per-URI single-flight (concurrent resolves of the same URI share one fetch), `ResolverError` with actionable install hints for missing schemes.
+- `file://` resolver — RFC 8089 (empty netloc or `localhost` only); off-loop reads via `asyncio.to_thread` so large payloads don't block the event loop.
+- Third-party resolver discovery via the `aetherbus.resolvers` entry-point group; failures during load log a WARNING rather than failing import.
+- Tests: 13 unit tests covering registry, cache, single-flight, error-not-cached, file roundtrip, and `Event.resolve()` dataref paths (inline JSON, model validation, octet-stream raw bytes).
+
+**Changed**
+- `Event.resolve()` now actually fetches `dataref` payloads via the resolver SDK instead of raising `NotImplementedError`. JSON content-types auto-parse; `as_=Model` validates via `model_validate_json`; other content-types return raw bytes.
+
+**Removed**
+- Dropped the `[project.entry-points."aetherbus.resolvers"]` block from `pyproject.toml` — those entries pointed at modules that didn't exist yet. Built-ins register via direct import; the entry-point group is for third-party plugins.
 
 ---
 

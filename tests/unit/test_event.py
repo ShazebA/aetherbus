@@ -31,11 +31,16 @@ async def test_resolve_with_model_validates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_dataref_raises_not_implemented() -> None:
+async def test_resolve_dataref_with_unsupported_scheme_errors() -> None:
+    # M3 wires Event.resolve() to the resolver SDK. Unsupported schemes raise
+    # ResolverError with a hint at the right `pip install` extra.
+    from aetherbus.resolver import ResolverError
+
     env = Envelope.new(source="x", type="t.v1", dataref="mcp://server/abc")
     event = Event(envelope=env)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ResolverError) as ei:
         await event.resolve()
+    assert "mcp" in str(ei.value)
 
 
 def test_event_exposes_envelope_fields() -> None:

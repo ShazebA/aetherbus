@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -8,6 +9,7 @@ from typing import Any, TypeVar, overload
 from pydantic import BaseModel
 
 from .envelope import Envelope
+from .resolver import resolve_uri
 
 T = TypeVar("T", bound="EventPayload")
 
@@ -63,11 +65,28 @@ class Event:
     @overload
     async def resolve(self, as_: None = None) -> Any: ...
     async def resolve(self, as_: type[T] | None = None) -> Any:
+        """Return the event payload, fetching the ``dataref`` if needed.
+
+        Resolution rules:
+
+        - **Inline data:** returned as-is (``dict``/``list``/scalar), or
+          validated against ``as_`` if provided.
+        - **dataref URI:** fetched via the resolver SDK (TTL cached,
+          single-flight per URI per process). If the envelope's
+          ``datacontenttype`` is ``application/json`` the bytes are parsed;
+          otherwise they're returned raw. ``as_`` validates the result.
+        """
         if self.envelope.dataref is not None:
-            raise NotImplementedError(
-                "resolver SDK ships in M3; this event has "
-                f"dataref={self.envelope.dataref!r} and cannot be resolved yet."
+            payload = await resolve_uri(
+                self.envelope.dataref,
+                ttl=self.envelope.aetherbusttl,
             )
+            if as_ is not None:
+                # Pydantic handles both JSON bytes and pre-parsed dicts.
+                return as_.model_validate_json(payload)
+            if self.envelope.datacontenttype == "application/json":
+                return json.loads(payload)
+            return payload
         data = self.envelope.data
         if as_ is None:
             return data
