@@ -8,6 +8,22 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
+### M3b — `https://` + MCP server adapter (in flight on `feature/m3-resolvers-mcp`)
+
+**Added**
+- `https://` resolver — httpx-backed; optional `AETHERBUS_HTTPS_AUTH` bearer.
+- `aetherbus.mcp_adapter.AetherBusMCPServer` — bridges bus topics to MCP resources at `aetherbus://<topic>`. On every event the server pushes `notifications/resources/updated`; clients pull via `resources/read` (poke-then-read, see ADR-004).
+- `aetherbus-mcp serve --topic <topic>` CLI entry, wired through Typer. Logs to stderr (stdout is the MCP transport). Documented snippet for `claude_desktop_config.json` in the CLI help.
+- ADR-004 — MCP poke-then-read semantics.
+- 5 new unit tests for `https://` (success, 404, bearer header on/off, transport errors via `respx`); 3 for the MCP adapter (event → latest + notification, latched without session, broken-session safety).
+- `respx` added to dev deps; `mcp>=1.0` moved into dev so the adapter tests run by default.
+
+**Changed**
+- `aetherbus.resolver.__init__` imports `https` alongside `file` so both built-ins register on package import.
+
+**Implementation notes**
+- The MCP SDK doesn't expose the active `ServerSession` outside a request context, so we replicate `mcp.server.lowlevel.Server.run` (~25 LOC) to capture it. Couples to a single-underscore SDK method (`Server._handle_message`); pinned to `mcp>=1.0`. Move to a public hook when the SDK offers one.
+
 ### M3a — Resolver SDK + `file://` (in flight on `feature/m3-resolvers-mcp`)
 
 **Added**

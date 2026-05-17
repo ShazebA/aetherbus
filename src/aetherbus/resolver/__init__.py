@@ -16,6 +16,7 @@ from __future__ import annotations
 
 # Import built-ins so their @register_resolver decorators run.
 from . import file as _file  # noqa: F401 — import for side effect
+from . import https as _https  # noqa: F401 — import for side effect
 from .base import (
     Resolver,
     ResolverError,
