@@ -2,46 +2,98 @@
 
 > Event-driven context layer for AI agents. CloudEvents over NATS/Kafka, with pointers — not payloads — and an MCP adapter so any MCP client can consume the stream.
 
-**Status:** pre-alpha. The full v1 spec lives in [PRD_AetherBus.md](PRD_AetherBus.md).
+**Status:** pre-alpha. The full v1 spec lives in [PRD_AetherBus.md](PRD_AetherBus.md). M2 (core API, NATS transport, outbox, tests) is the current tip.
 
-## What it is
+## Install
 
-AetherBus is a Python library and reference broker that gives AI agents a Kafka-style pub/sub layer where **events carry pointers to context, not the context itself**. Agents subscribe to topics, receive lightweight CloudEvents with a `dataref` URI, and resolve the full payload on demand from MCP resources, vector databases, Git, S3, or local files.
+```bash
+git clone git@github.com:ShazebA/aetherbus.git
+cd aetherbus
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
 
-It is not a new agent framework, and not a competitor to MCP or A2A. It is the missing async, many-to-many, replayable layer between them.
+## Run a broker
 
-## Quickstart (target API)
+```bash
+docker compose up -d nats
+```
+
+NATS JetStream listens on `localhost:4222`. Stop with `docker compose down`.
+
+## Quickstart
+
+Two terminals, one publisher, one subscriber, both pointing at the same NATS:
 
 ```python
+# subscriber.py
+import asyncio
 from aetherbus import Bus, EventPayload
-from pydantic import HttpUrl
 
-bus = Bus.from_env()  # AETHERBUS_URL=nats://localhost:4222
 
 class Finding(EventPayload):
     query: str
-    source_url: HttpUrl
     summary: str
 
-@bus.subscribe("dev.aetherbus.research.finding.v1")
-async def on_finding(event):
-    finding: Finding = await event.resolve(as_=Finding)
-    print(f"Got: {finding.summary}")
 
-await bus.publish(
-    "dev.aetherbus.research.finding.v1",
-    payload=Finding(query="kafka for agents", source_url="https://...", summary="..."),
-)
+async def main() -> None:
+    bus = Bus.from_env()  # reads AETHERBUS_URL, defaults to nats://localhost:4222
+    bus.register_schema("dev.aetherbus.research.finding.v1", Finding)
 
-await bus.run()
+    @bus.subscribe("dev.aetherbus.research.finding.v1")
+    async def on_finding(event):
+        finding = await event.resolve(as_=Finding)
+        print(f"got: {finding.summary}")
+
+    await bus.run()
+
+
+asyncio.run(main())
 ```
+
+```python
+# publisher.py
+import asyncio
+from aetherbus import Bus, EventPayload
+
+
+class Finding(EventPayload):
+    query: str
+    summary: str
+
+
+async def main() -> None:
+    async with Bus.from_env() as bus:
+        eid = await bus.publish(
+            "dev.aetherbus.research.finding.v1",
+            payload=Finding(query="kafka for agents", summary="claim-check works"),
+        )
+        print(f"published {eid}")
+
+
+asyncio.run(main())
+```
+
+> M2 ships inline payloads only — `dataref` resolution arrives in M3. Events larger than 4 KB serialized will error; that's where `dataref` (and the resolver SDK) will take over.
+
+## Develop
+
+```bash
+pip install -e ".[dev]"
+ruff check src tests
+mypy src
+docker compose up -d nats
+pytest -q
+```
+
+Integration tests use `testcontainers` to spin up NATS automatically; set `AETHERBUS_TEST_NATS_URL=nats://localhost:4222` to reuse the compose-managed instance and skip the container start.
 
 ## Roadmap
 
 See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Target: 8 weekends to v1.
 
-- M1 — Spike (NATS + CloudEvents publish/subscribe)
-- M2 — Core (`Bus`, `Event`, outbox, tests)
+- ✅ M1 — Spike (NATS + CloudEvents publish/subscribe) → see [examples/spike.py](examples/spike.py)
+- ✅ M2 — Core (`Bus`, `Event`, outbox, tests) — *this milestone*
 - M3 — Resolvers + MCP server adapter
 - M4 — Kafka transport
 - M5 — Replay UI
