@@ -8,7 +8,26 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### M4 — Kafka transport (in flight on `feature/m4-kafka-transport`)
+### M5a — Replay UI backend + `bus.replay()` (in flight on `feature/m5a-replay-ui-backend`)
+
+**Added**
+- `bus.replay(topic, since=, until=, into=, idle_timeout=)` — async generator over stored events. Pass `into=other_bus` to re-emit raw envelope bytes onto a sandbox bus (ids, timestamps, correlation ids preserved). Replaces the M2 `NotImplementedError` stub.
+- `Transport.history(topic, since=, until=, idle_timeout=)` Protocol method. NATS implementation uses an ephemeral durable pull consumer (`DeliverPolicy.BY_START_TIME` / `ALL`) that auto-deletes on close. Kafka raises `NotImplementedError` for now — lands in a follow-up.
+- `aetherbus.replay_ui.backend` FastAPI app with `/`, `/api/streams`, `/api/streams/{name}/events`, `/api/events/{id}`, `/api/streams/{name}/tail` (WebSocket), `/api/replay`.
+- `aetherbus-ui serve [--port 7798] [--bus URL] [--config PATH] [--host 127.0.0.1]` CLI (Typer). Loopback-only by default per PRD §6.7.
+- Single Jinja template + vanilla JS viewer at `/` — streams sidebar, event table, click-to-inspect modal, live tail toggle. Throwaway; the React SPA replaces it in M5b.
+- 4 new unit tests for `bus.replay()` (in-order, sandbox re-publish preserves bytes, sandbox failure → outbox, caller-break).
+- 7 new FastAPI tests via `TestClient` against a stub transport (HTML route, streams list, history paging + limit, event-by-id success + 404, replay endpoint).
+
+**Changed**
+- `fastapi`, `uvicorn`, `websockets`, `jinja2` promoted to `dev` extras so the replay-ui tests run by default.
+
+**Implementation notes**
+- `replay(into=)` calls the sandbox transport's `publish()` with the original bytes so re-emitted events keep their original ids and timestamps — the audit trail survives a fork. Sandbox transport failures route through the sandbox bus's outbox, mirroring the live-publish path.
+
+---
+
+## M4 — Kafka transport — 2026-05-17 (merged via [PR #5](https://github.com/ShazebA/aetherbus/pull/5))
 
 **Added**
 - `aetherbus.transports.kafka.KafkaTransport` — `aiokafka`-backed implementation of the `Transport` Protocol. Selected when `settings.transport_type == "kafka"`. Semantic translations: topic name → Kafka topic (pass-through), `queue_group` → consumer `group_id`, `replay_from="earliest"|"latest"` → `auto_offset_reset`, `replay_from=datetime` → `offsets_for_times` + `seek`, `ack` → `commit({tp: offset+1})`, `nack` → `seek(tp, offset)`. `max_in_flight` enforced via an `asyncio.Semaphore` around dispatch (no native aiokafka knob).

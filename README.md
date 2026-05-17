@@ -107,6 +107,23 @@ asyncio.run(main())
 
 > Events larger than 4 KB serialized must use `dataref` instead of inline payloads. As of M3 the resolver SDK supports `file://`, `https://`, `mcp://`, and `git://` schemes out of the box (`mcp://` and `git://` need the `[mcp]` extra and a `git` binary on `$PATH` respectively).
 
+## Replay UI (M5a — minimal viewer)
+
+```bash
+docker compose up -d nats
+aetherbus-ui serve        # http://localhost:7798
+```
+
+A loopback-only FastAPI backend exposes the bus over REST + WebSocket. The current page is a single Jinja template — the React SPA lands in M5b. Programmatic replay also works:
+
+```python
+async with Bus.from_env() as bus:
+    async for event in bus.replay("dev.aetherbus.research.finding.v1", since=...):
+        print(event.id, event.inline_data)
+```
+
+Pass `into=other_bus` to re-emit history into a sandbox bus — same envelopes, same ids, same correlation ids. Per PRD §5.6 the sandbox primitive enables fork-from-here debugging.
+
 ## Develop
 
 ```bash
@@ -127,7 +144,7 @@ See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Targ
 - ✅ M2 — Core (`Bus`, `Event`, outbox, tests)
 - ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
 - ✅ M4 — Kafka transport (`transport_type: kafka`; same `Bus` API, same conformance suite)
-- M5 — Replay UI
+- 🚧 M5 — Replay UI — **M5a backend lives**; React SPA + sandbox replay follow
 - M6 — Framework adapters (LangGraph, CrewAI, OpenAI Agents SDK)
 - M7 — Polish + launch
 

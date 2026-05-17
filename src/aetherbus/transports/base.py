@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -54,3 +54,20 @@ class Transport(Protocol):
         opt_start_time: datetime | None,
         callback: Callable[[Msg], Awaitable[None]],
     ) -> Subscription: ...
+
+    def history(
+        self,
+        topic: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        idle_timeout: float = 1.0,
+    ) -> AsyncIterator[Msg]:
+        """Iterate stored messages for ``topic`` between ``since`` and ``until``.
+
+        Returns an async generator. The generator stops on three conditions:
+        ``until`` passed, the broker is idle for ``idle_timeout`` seconds (no
+        more history to read), or the caller breaks out of the loop. Cleanup
+        of broker-side cursors / consumers happens on close.
+        """
+        ...
