@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import time
@@ -7,6 +8,7 @@ import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
+import nats
 import pytest
 
 from aetherbus import Bus
@@ -30,6 +32,40 @@ def _wait_port(host: str, port: int, timeout: float = 30.0) -> None:
     raise TimeoutError(f"{host}:{port} not reachable within {timeout}s")
 
 
+async def _clean_test_streams_async(url: str) -> None:
+    """Delete any pre-existing JetStream that overlaps our test subjects.
+
+    JetStream rejects new streams whose subjects overlap an existing one. If a
+    prior test run (or a buggy commit) leaked streams claiming `test.>`, the
+    session-shared TEST_AETHERBUS stream can't be created. We sweep them here.
+    """
+    nc = await nats.connect(url)
+    try:
+        js = nc.jetstream()
+        streams = await js.streams_info()
+        for s in streams:
+            subjects = list(s.config.subjects or [])
+            if any(subj.startswith("test.") or subj == "test.>" for subj in subjects):
+                try:
+                    await js.delete_stream(s.config.name)
+                except Exception:
+                    pass
+    finally:
+        await nc.drain()
+
+
+def _clean_test_streams(url: str) -> None:
+    last_err: Exception | None = None
+    for _ in range(5):
+        try:
+            asyncio.run(_clean_test_streams_async(url))
+            return
+        except Exception as e:
+            last_err = e
+            time.sleep(0.5)
+    raise RuntimeError(f"failed to clean test streams at {url}: {last_err}")
+
+
 @pytest.fixture(scope="session")
 def nats_url() -> Iterator[str]:
     """Reuse `AETHERBUS_TEST_NATS_URL`; else start a one-off NATS container."""
@@ -37,6 +73,7 @@ def nats_url() -> Iterator[str]:
     if url:
         host, port_str = url.removeprefix("nats://").split(":")
         _wait_port(host, int(port_str), timeout=10)
+        _clean_test_streams(url)
         yield url
         return
 
@@ -58,7 +95,9 @@ def nats_url() -> Iterator[str]:
         host = container.get_container_host_ip()
         port = int(container.get_exposed_port(4222))
         _wait_port(host, port)
-        yield f"nats://{host}:{port}"
+        url = f"nats://{host}:{port}"
+        _clean_test_streams(url)
+        yield url
     finally:
         container.stop()
 
