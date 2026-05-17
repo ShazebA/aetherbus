@@ -51,23 +51,24 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "mkdocs-material>=9.5",
+    "mcp>=1.0",  # exercises the MCP adapter in tests; also required for `aetherbus-mcp`
+    "respx>=0.21",  # httpx mock transport for https resolver tests
 ]
 all = ["aetherbus[kafka,mcp,replay,langgraph,crewai,openai,vec,git]"]
 
 [project.scripts]
-aetherbus = "aetherbus.cli:app"
+aetherbus-mcp = "aetherbus.mcp_adapter.cli:main"
+# `aetherbus` umbrella CLI (init/tail/publish/replay/...) lands in a later
+# milestone once each subcommand has a backing implementation.
 
 [project.urls]
 Homepage = "https://github.com/shazeb/aetherbus"
 Repository = "https://github.com/shazeb/aetherbus"
 Issues = "https://github.com/shazeb/aetherbus/issues"
 
-[project.entry-points."aetherbus.resolvers"]
-mcp = "aetherbus.resolver.mcp:MCPResolver"
-file = "aetherbus.resolver.file:FileResolver"
-https = "aetherbus.resolver.https:HTTPSResolver"
-git = "aetherbus.resolver.git:GitResolver"
-vec = "aetherbus.resolver.vec:VectorResolver"
+# Third-party resolvers register under the `aetherbus.resolvers` entry-point
+# group; see aetherbus.resolver._load_entry_point_resolvers. Built-ins ship as
+# direct imports inside `aetherbus.resolver.__init__`, no entry point needed.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aetherbus"]

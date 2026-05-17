@@ -8,14 +8,38 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### Added
-- `CHANGELOG.md` (this file), history backfilled.
-- `CLAUDE.md` "Changelog upkeep" rule: every commit gets an Unreleased entry.
+### Tooling
+- `.gitignore` excludes a local `.mcp.json` — the convenient way to wire `aetherbus-mcp` into Claude Code, but the command path is currently absolute. Stays out of git until we ship the binary in a way that works from `PATH` on any box.
 
-### Fixed
-- Integration tests use one session-shared JetStream (`TEST_AETHERBUS`) + a per-test `topic_ns` fixture instead of per-test streams, avoiding `subjects overlap with an existing stream` errors from JetStream.
-- Conftest sweeps any pre-existing stream whose subjects start with `test.` at session start, surviving leftover state from earlier runs (including from the initial buggy M2 conftest that leaked streams into JetStream's data dir).
-- NATS transport queue groups: when `queue_group` is set, pass the topic-scoped durable as both the queue name and the consumer's `deliver_group` to satisfy nats-py 2.14's `queue == durable` invariant (`nats/js/client.py:376`). Previously the second subscriber in a queue group always errored on attach.
+### M3b — `https://` + MCP server adapter (in flight on `feature/m3-resolvers-mcp`)
+
+**Added**
+- `https://` resolver — httpx-backed; optional `AETHERBUS_HTTPS_AUTH` bearer.
+- `aetherbus.mcp_adapter.AetherBusMCPServer` — bridges bus topics to MCP resources at `aetherbus://<topic>`. On every event the server pushes `notifications/resources/updated`; clients pull via `resources/read` (poke-then-read, see ADR-004).
+- `aetherbus-mcp serve --topic <topic>` CLI entry, wired through Typer. Logs to stderr (stdout is the MCP transport). Documented snippet for `claude_desktop_config.json` in the CLI help.
+- ADR-004 — MCP poke-then-read semantics.
+- 5 new unit tests for `https://` (success, 404, bearer header on/off, transport errors via `respx`); 3 for the MCP adapter (event → latest + notification, latched without session, broken-session safety).
+- `respx` added to dev deps; `mcp>=1.0` moved into dev so the adapter tests run by default.
+
+**Changed**
+- `aetherbus.resolver.__init__` imports `https` alongside `file` so both built-ins register on package import.
+
+**Implementation notes**
+- The MCP SDK doesn't expose the active `ServerSession` outside a request context, so we replicate `mcp.server.lowlevel.Server.run` (~25 LOC) to capture it. Couples to a single-underscore SDK method (`Server._handle_message`); pinned to `mcp>=1.0`. Move to a public hook when the SDK offers one.
+
+### M3a — Resolver SDK + `file://` (in flight on `feature/m3-resolvers-mcp`)
+
+**Added**
+- `aetherbus.resolver` package: `Resolver` Protocol, `register_resolver` decorator, `resolve_uri` with TTL cache + per-URI single-flight (concurrent resolves of the same URI share one fetch), `ResolverError` with actionable install hints for missing schemes.
+- `file://` resolver — RFC 8089 (empty netloc or `localhost` only); off-loop reads via `asyncio.to_thread` so large payloads don't block the event loop.
+- Third-party resolver discovery via the `aetherbus.resolvers` entry-point group; failures during load log a WARNING rather than failing import.
+- Tests: 13 unit tests covering registry, cache, single-flight, error-not-cached, file roundtrip, and `Event.resolve()` dataref paths (inline JSON, model validation, octet-stream raw bytes).
+
+**Changed**
+- `Event.resolve()` now actually fetches `dataref` payloads via the resolver SDK instead of raising `NotImplementedError`. JSON content-types auto-parse; `as_=Model` validates via `model_validate_json`; other content-types return raw bytes.
+
+**Removed**
+- Dropped the `[project.entry-points."aetherbus.resolvers"]` block from `pyproject.toml` — those entries pointed at modules that didn't exist yet. Built-ins register via direct import; the entry-point group is for third-party plugins.
 
 ---
 
