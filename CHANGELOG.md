@@ -8,6 +8,9 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
+### Tooling
+- `.gitignore` excludes a local `.mcp.json` — the convenient way to wire `aetherbus-mcp` into Claude Code, but the command path is currently absolute. Stays out of git until we ship the binary in a way that works from `PATH` on any box.
+
 ### M3b — `https://` + MCP server adapter (in flight on `feature/m3-resolvers-mcp`)
 
 **Added**

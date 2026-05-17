@@ -42,6 +42,9 @@ Thumbs.db
 .outbox.sqlite-*
 asyncapi.yaml
 site/
+# Local MCP server config — command path is machine-specific until the
+# `aetherbus-mcp` binary is on PyPI and findable via PATH on every dev box.
+.mcp.json
 
 # Frontend (replay UI)
 node_modules/
