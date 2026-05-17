@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
@@ -166,6 +166,28 @@ class KafkaTransport:
             name=f"kafka-dispatch-{topic}",
         )
         return _KafkaSubscription(consumer, task)
+
+    async def history(
+        self,
+        topic: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        idle_timeout: float = 1.0,
+    ) -> AsyncIterator[Msg]:
+        """Replay history is stubbed on Kafka in M5a — lands in a later slice.
+
+        Kafka has the primitives (offsets_for_times + seek + an end-of-stream
+        sentinel via end_offsets), but the M5a backend only needs NATS replay
+        for the Replay UI demo. Raises so callers get a clear signal.
+        """
+        raise NotImplementedError(
+            "Kafka history() lands after M5a — use the NATS transport for replay "
+            "until then, or open a PR with the offsets_for_times implementation."
+        )
+        # The yield below is unreachable but tells the type checker that this
+        # is an async generator, not a coroutine.
+        yield  # pragma: no cover
 
 
 def _has_wildcard(subject: str) -> bool:

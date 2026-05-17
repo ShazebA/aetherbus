@@ -169,8 +169,46 @@ class Bus:
 
         return deco
 
-    async def replay(self, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError("bus.replay ships in M5 alongside the Replay UI")
+    async def replay(
+        self,
+        topic: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        into: Bus | None = None,
+        idle_timeout: float = 1.0,
+    ):
+        """Async-iterate stored events on ``topic`` between ``since`` and ``until``.
+
+        Optionally re-emit each event onto a separate ``into`` bus (the
+        sandbox-replay pattern from PRD §5.6). Re-publish preserves the
+        original envelope bytes — same id, same time, same correlation_id —
+        so downstream subscribers see history exactly as it happened.
+
+        Yields :class:`Event` instances. Iteration stops when the broker is
+        idle for ``idle_timeout`` seconds (no more history) or when ``until``
+        passes.
+        """
+        await self.connect()
+        if into is not None:
+            await into.connect()
+
+        async for msg in self._transport.history(
+            topic, since=since, until=until, idle_timeout=idle_timeout
+        ):
+            env = Envelope.from_bytes(msg.data)
+            if into is not None:
+                # Re-emit the raw envelope on the sandbox transport — preserves
+                # id, time, source, correlation_id, depends_on, signature, …
+                try:
+                    await into._transport.publish(topic, msg.data, msg.headers)
+                except TransportError:
+                    logger.warning(
+                        "replay: sandbox publish failed for %s; queued in sandbox outbox",
+                        topic,
+                    )
+                    await into._outbox.enqueue(env.id, topic, msg.data, msg.headers)
+            yield Event(envelope=env)
 
     async def connect(self) -> None:
         if self._connected:

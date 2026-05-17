@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
 import nats
 from nats.aio.client import Client as NATSClient
 from nats.errors import NoServersError
+from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js import JetStreamContext
-from nats.js.api import ConsumerConfig, StreamConfig
+from nats.js.api import AckPolicy, ConsumerConfig, StreamConfig
 from nats.js.api import DeliverPolicy as NatsDeliver
 from nats.js.errors import NotFoundError
 
@@ -113,3 +115,68 @@ class NATSTransport:
                 await psub.unsubscribe()
 
         return _Sub()
+
+    async def history(
+        self,
+        topic: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        idle_timeout: float = 1.0,
+    ) -> AsyncIterator[Msg]:
+        """JetStream pull-consumer iteration over stored events on ``topic``.
+
+        Creates an ephemeral durable consumer scoped to this iteration and
+        deletes it on close. Ack policy is EXPLICIT — we ack each message so
+        the consumer's "delivered" cursor advances but won't redeliver.
+        """
+        assert self._js is not None, "transport not connected"
+
+        durable = f"replay_{uuid.uuid4().hex[:12]}"
+        if since is not None:
+            policy = NatsDeliver.BY_START_TIME
+            opt_start_time: str | None = since.isoformat()
+        else:
+            policy = NatsDeliver.ALL
+            opt_start_time = None
+
+        cfg = ConsumerConfig(
+            durable_name=durable,
+            deliver_policy=policy,
+            opt_start_time=opt_start_time,
+            ack_policy=AckPolicy.EXPLICIT,
+            filter_subject=topic,
+        )
+
+        psub = await self._js.pull_subscribe(topic, durable=durable, config=cfg)
+        stream_name = await self._js.find_stream_name_by_subject(topic)
+        try:
+            while True:
+                try:
+                    batch = await psub.fetch(batch=32, timeout=idle_timeout)
+                except (TimeoutError, NatsTimeoutError):
+                    return  # idle — caught up
+
+                if not batch:
+                    return
+
+                for nm in batch:
+                    if until is not None and nm.metadata is not None:
+                        ts = nm.metadata.timestamp
+                        if ts is not None and ts > until:
+                            await nm.ack()
+                            return
+                    yield Msg(
+                        data=nm.data,
+                        headers=dict(nm.headers or {}),
+                        _ack_fn=nm.ack,
+                        _nack_fn=nm.nak,
+                    )
+                    # Replay reads are non-destructive but we still ack so the
+                    # ephemeral consumer's pending count doesn't grow.
+                    await nm.ack()
+        finally:
+            try:
+                await self._js.delete_consumer(stream_name, durable)
+            except Exception:
+                pass

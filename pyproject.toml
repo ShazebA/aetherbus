@@ -54,11 +54,16 @@ dev = [
     "mcp>=1.0",  # exercises the MCP adapter in tests; also required for `aetherbus-mcp`
     "respx>=0.21",  # httpx mock transport for https resolver tests
     "aiokafka>=0.10",  # Kafka transport conformance tests
+    "fastapi>=0.110",  # Replay UI backend tests
+    "uvicorn[standard]>=0.29",  # `aetherbus-ui serve`
+    "websockets>=12",  # WebSocket client for replay-tail tests
+    "jinja2>=3.1",  # template engine for the minimal HTML viewer
 ]
 all = ["aetherbus[kafka,mcp,replay,langgraph,crewai,openai,vec,git]"]
 
 [project.scripts]
 aetherbus-mcp = "aetherbus.mcp_adapter.cli:main"
+aetherbus-ui = "aetherbus.replay_ui.backend.cli:main"
 # `aetherbus` umbrella CLI (init/tail/publish/replay/...) lands in a later
 # milestone once each subcommand has a backing implementation.
 

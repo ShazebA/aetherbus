@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}</title>
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --fg: #e6e8ec;
+      --muted: #8a8f9a;
+      --accent: #4cc9f0;
+      --border: #1a1e27;
+    }
+    body { font: 14px/1.5 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); margin: 0; }
+    header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+    header .status { color: var(--muted); font-size: 12px; }
+    main { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 53px); }
+    aside { border-right: 1px solid var(--border); padding: 16px; }
+    aside h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; letter-spacing: 0.05em; }
+    .stream { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; }
+    .stream:hover { background: rgba(255,255,255,0.04); }
+    .stream.active { background: rgba(76,201,240,0.12); border: 1px solid rgba(76,201,240,0.3); }
+    .stream .name { font-weight: 600; }
+    .stream .subjects { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    section { padding: 16px 24px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .toolbar input { background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 6px 10px; border-radius: 4px; flex: 1; font: inherit; }
+    .toolbar button { background: var(--accent); color: var(--bg); border: 0; padding: 6px 14px; border-radius: 4px; font: inherit; font-weight: 600; cursor: pointer; }
+    .toolbar button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: ui-monospace, 'SF Mono', monospace; font-size: 12px; }
+    tr.event { cursor: pointer; }
+    tr.event:hover { background: rgba(255,255,255,0.03); }
+    .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: rgba(76,201,240,0.15); color: var(--accent); }
+    .empty { color: var(--muted); padding: 32px 12px; text-align: center; font-style: italic; }
+    pre { background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    dialog { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; max-width: 720px; width: 90%; padding: 20px; }
+    dialog::backdrop { background: rgba(0,0,0,0.7); }
+    dialog h3 { margin-top: 0; }
+    .indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #888; margin-right: 6px; vertical-align: middle; }
+    .indicator.live { background: #34c759; box-shadow: 0 0 8px #34c759; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>AetherBus Replay</h1>
+  <div class="status">
+    <span class="indicator" id="tail-indicator"></span>
+    <span id="status-text">M5a — minimal viewer. React SPA in M5b.</span>
+  </div>
+</header>
+<main>
+  <aside>
+    <h2>Streams</h2>
+    <div id="streams"></div>
+  </aside>
+  <section>
+    <div class="toolbar">
+      <input id="topic-input" placeholder="topic (e.g. dev.aetherbus.research.finding.v1)">
+      <button id="load-btn">Load history</button>
+      <button id="tail-btn" class="secondary">Tail</button>
+    </div>
+    <div id="events">
+      <div class="empty">Pick a stream + enter a topic, then load history or tail.</div>
+    </div>
+  </section>
+</main>
+
+<dialog id="event-dialog">
+  <h3>Event detail</h3>
+  <pre id="event-detail"></pre>
+  <form method="dialog" style="margin-top: 12px;"><button>Close</button></form>
+</dialog>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let activeStream = null;
+let ws = null;
+
+async function loadStreams() {
+  const resp = await fetch("/api/streams");
+  const streams = await resp.json();
+  const el = $("#streams");
+  el.innerHTML = "";
+  for (const s of streams) {
+    const div = document.createElement("div");
+    div.className = "stream";
+    div.innerHTML = `<div class="name">${s.name}</div><div class="subjects">${s.subjects.join(", ")}</div>`;
+    div.onclick = () => {
+      document.querySelectorAll(".stream").forEach(e => e.classList.remove("active"));
+      div.classList.add("active");
+      activeStream = s.name;
+    };
+    el.appendChild(div);
+  }
+  if (streams.length === 1) {
+    el.firstChild.click();
+  }
+}
+
+function renderEvents(events) {
+  const el = $("#events");
+  if (events.length === 0) {
+    el.innerHTML = `<div class="empty">No events yet.</div>`;
+    return;
+  }
+  let html = `<table>
+    <thead><tr><th>id</th><th>type</th><th>source</th><th>time</th><th></th></tr></thead><tbody>`;
+  for (const e of events) {
+    const badge = e.has_dataref ? `<span class="badge">dataref</span>` : "";
+    html += `<tr class="event" data-id="${e.id}"><td>${e.id.slice(0, 8)}…</td><td>${e.type}</td><td>${e.source}</td><td>${e.time}</td><td>${badge}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  el.innerHTML = html;
+  el.querySelectorAll("tr.event").forEach(tr => {
+    tr.onclick = () => showEvent(tr.dataset.id);
+  });
+}
+
+async function showEvent(id) {
+  const topic = $("#topic-input").value.trim();
+  if (!topic) return;
+  const resp = await fetch(`/api/events/${id}?topic=${encodeURIComponent(topic)}`);
+  if (!resp.ok) { alert(`fetch failed: ${resp.status}`); return; }
+  const detail = await resp.json();
+  $("#event-detail").textContent = JSON.stringify(detail, null, 2);
+  $("#event-dialog").showModal();
+}
+
+$("#load-btn").onclick = async () => {
+  const topic = $("#topic-input").value.trim();
+  if (!activeStream || !topic) { alert("pick a stream and topic"); return; }
+  const resp = await fetch(`/api/streams/${activeStream}/events?topic=${encodeURIComponent(topic)}`);
+  renderEvents(await resp.json());
+};
+
+$("#tail-btn").onclick = () => {
+  const topic = $("#topic-input").value.trim();
+  if (!activeStream || !topic) { alert("pick a stream and topic"); return; }
+  if (ws) {
+    ws.close();
+    ws = null;
+    $("#tail-indicator").classList.remove("live");
+    $("#tail-btn").textContent = "Tail";
+    return;
+  }
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(`${proto}//${location.host}/api/streams/${activeStream}/tail?topic=${encodeURIComponent(topic)}`);
+  ws.onopen = () => {
+    $("#tail-indicator").classList.add("live");
+    $("#tail-btn").textContent = "Stop";
+    $("#events").innerHTML = `<table><thead><tr><th>id</th><th>type</th><th>source</th><th>time</th></tr></thead><tbody id="tail-body"></tbody></table>`;
+  };
+  ws.onmessage = (msg) => {
+    const e = JSON.parse(msg.data);
+    const body = $("#tail-body");
+    if (!body) return;
+    const tr = document.createElement("tr");
+    tr.className = "event";
+    tr.dataset.id = e.id;
+    tr.innerHTML = `<td>${e.id.slice(0, 8)}…</td><td>${e.type}</td><td>${e.source}</td><td>${e.time}</td>`;
+    tr.onclick = () => showEvent(e.id);
+    body.prepend(tr);
+  };
+  ws.onclose = () => {
+    $("#tail-indicator").classList.remove("live");
+    $("#tail-btn").textContent = "Tail";
+    ws = null;
+  };
+};
+
+loadStreams();
+</script>
+</body>
+</html>
