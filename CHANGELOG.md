@@ -12,9 +12,16 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 - `CHANGELOG.md` (this file), history backfilled.
 - `CLAUDE.md` "Changelog upkeep" rule: every commit gets an Unreleased entry.
 
-### M2 — Core (in flight on [PR #1](https://github.com/ShazebA/aetherbus/pull/1))
+### Fixed
+- Integration tests use one session-shared JetStream (`TEST_AETHERBUS`) + a per-test `topic_ns` fixture instead of per-test streams, avoiding `subjects overlap with an existing stream` errors from JetStream.
+- Conftest sweeps any pre-existing stream whose subjects start with `test.` at session start, surviving leftover state from earlier runs (including from the initial buggy M2 conftest that leaked streams into JetStream's data dir).
+- NATS transport queue groups: when `queue_group` is set, pass the topic-scoped durable as both the queue name and the consumer's `deliver_group` to satisfy nats-py 2.14's `queue == durable` invariant (`nats/js/client.py:376`). Previously the second subscriber in a queue group always errored on attach.
 
-**Added**
+---
+
+## M2 — Core — 2026-05-17 (merged via [PR #1](https://github.com/ShazebA/aetherbus/pull/1))
+
+### Added
 - Public API per PRD §6.2: `Bus.from_env` / `Bus.from_config`, `publish`, `subscribe` (decorator), `run`, `close`, `register_schema`, async context manager (`async with Bus.from_env() as bus`).
 - `Event`, `EventPayload` (Pydantic v2 marker). `event.resolve()` returns inline data or validates against a model.
 - `Envelope` — CloudEvents 1.0 + AetherBus extension attrs; enforces data XOR dataref and the 4 KB inline guard.
@@ -23,20 +30,15 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 - Auto-derived event source `aetherbus://agent/${HOSTNAME}-${pid}` with `AETHERBUS_SOURCE` override.
 - `docker-compose.yml` with healthchecked NATS for local dev.
 - ADRs **002** (CloudEvents structured-JSON envelope), **003** (Pydantic v2), **005** (UUIDv7, inlined — no third-party dep).
-- Test suite: 25 unit tests at **84% coverage** on `src/aetherbus/`; 3 integration tests against testcontainers-NATS (set `AETHERBUS_TEST_NATS_URL` to reuse a running broker).
+- Test suite scaffolding: 25 unit tests at **84% coverage** on `src/aetherbus/`; 3 integration tests against testcontainers-NATS (set `AETHERBUS_TEST_NATS_URL` to reuse a running broker). **Note:** the integration tests as merged were buggy — see Unreleased Fixed entries.
 
-**Changed**
+### Changed
 - README rewritten with the verified install + docker-compose + pytest flow and a one-shot publisher quickstart via `async with`.
 - `bus.replay()` stubs to `NotImplementedError` pointing at M5.
 - `event.resolve()` raises `NotImplementedError` for `dataref` URIs until M3's resolver SDK lands.
 
-**Removed**
+### Removed
 - `uuid7` third-party dependency — UUIDv7 generation inlined in `envelope.new_id()` (~10 LOC).
-
-**Fixed**
-- Integration tests use one session-shared JetStream + per-test `topic_ns` instead of per-test streams, avoiding `subjects overlap with an existing stream` errors.
-- Conftest sweeps any pre-existing stream claiming `test.*` subjects at session start, surviving leftover state from earlier runs.
-- NATS transport queue groups: when `queue_group` is set, pass the topic-scoped durable as both the queue name and the consumer's `deliver_group` to satisfy nats-py 2.14's `queue == durable` invariant (`nats/js/client.py:376`).
 
 ---
 
