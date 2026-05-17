@@ -74,9 +74,16 @@ class NATSTransport:
         else:
             nats_policy = NatsDeliver.NEW
 
+        # nats-py 2.14 requires queue == durable when both are passed, and uses
+        # the queue string as the consumer's deliver_group. We encode the user-
+        # facing queue_group into the topic-scoped durable, then reuse it as
+        # both the queue name and the deliver_group so the wire-level check at
+        # nats/js/client.py:375 succeeds for second-and-later subscribers.
+        effective_queue = durable if queue_group else None
+
         cfg = ConsumerConfig(
             durable_name=durable,
-            deliver_group=queue_group,
+            deliver_group=effective_queue,
             deliver_policy=nats_policy,
             opt_start_time=opt_start_time.isoformat() if opt_start_time else None,
             max_ack_pending=max_in_flight,
@@ -95,7 +102,7 @@ class NATSTransport:
 
         psub = await self._js.subscribe(
             topic,
-            queue=queue_group,
+            queue=effective_queue,
             cb=_cb,
             durable=durable,
             config=cfg,

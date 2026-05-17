@@ -98,6 +98,11 @@ Architecture decisions go in `docs/architecture/adrs/` as `NNNN-title.md`. Open 
 - SemVer. v0.x while the API churns; v1.0.0 gated on a stable MCP adapter.
 - Releases via tag → GitHub Action → PyPI.
 
+### Changelog upkeep
+- Every commit on a feature branch adds or updates an entry in [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]` heading. Organize entries as **Added / Changed / Fixed / Removed / Deprecated / Security** ([Keep a Changelog](https://keepachangelog.com)).
+- Refactors and bug fixes that don't ship behavior changes still get an entry — the changelog doubles as project memory, not just release notes.
+- When a milestone PR merges into `main`, promote that milestone's Unreleased entries into a new dated section (`## M3 — Resolvers + MCP — YYYY-MM-DD`).
+
 ### Branching workflow
 - **`main` is protected.** Never commit directly to `main`, even for tiny changes (typos, dependency bumps, doc tweaks). Always branch.
 - **Every new feature gets a branch:** `feature/<slug>` (e.g. `feature/m1-spike`, `feature/replay-ui`). Slug is short, ASCII, kebab-case.
