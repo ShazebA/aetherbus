@@ -8,43 +8,49 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### M5b — React SPA + Kafka `history()` (in flight on `feature/m5b-react-spa`)
-
-**Added**
-- `src/aetherbus/replay_ui/frontend/` — Vite + React 18 + TypeScript SPA. Hand-rolled UI components (button, badge, input, dialog) styled with Tailwind in the same dark palette as the M5a Jinja viewer; no shadcn CLI / Radix / cva to keep the dep tree small.
-- TanStack Query hooks in `src/api.ts` for `/api/streams`, `/api/streams/{name}/events`, `/api/events/{id}`, and the replay-dry-run mutation.
-- Live tail via WebSocket — opens `/api/streams/{name}/tail`, prepends events (capped at 200) into the table; status pill in the header reflects connection state.
-- Vite dev proxy (`/api` → `localhost:7798`) so the frontend hot-reloads against a running backend.
-- Kafka `Transport.history()` implementation — `offsets_for_times` + per-partition seek + end-of-snapshot detection via `end_offsets`. Replaces the M5a `NotImplementedError` stub. Reads are non-destructive (fresh consumer group, no commits).
-- Conformance test: `bus.replay()` iterates history on both transports — adds 1 test under each transport param, so 2 new integration tests.
-
-**Changed**
-- `replay_ui.backend.app` probes `frontend/dist/` at startup; serves the SPA when present, falls back to the M5a Jinja template otherwise.
-
-**Implementation notes**
-- `dist/` is gitignored — built once locally via `npm run build`. Bundling into the Python wheel via a hatch hook lands in M5c.
-- The SPA is intentionally one-page-app simple. Stream detail page lives in `App.tsx`; provenance graph, schemas, trace pages all M5c.
+(no entries yet — next is M6 framework adapters per PRD §7.1)
 
 ---
 
----
+## M5 — Replay UI — 2026-05-20
 
-## M5a — Replay UI backend + `bus.replay()` — 2026-05-17 (merged via [PR #6](https://github.com/ShazebA/aetherbus/pull/6))
+Merged across three slices: **M5a** ([PR #6](https://github.com/ShazebA/aetherbus/pull/6) — backend + `bus.replay()`), **M5b** ([PR #7](https://github.com/ShazebA/aetherbus/pull/7) — React SPA + Kafka history), **M5c** (this PR — sandbox replay execution + `depends_on` UI + wheel bundling).
 
-**Added**
+### Added
+
+**`bus.replay()` and `Transport.history()`**
 - `bus.replay(topic, since=, until=, into=, idle_timeout=)` — async generator over stored events. Pass `into=other_bus` to re-emit raw envelope bytes onto a sandbox bus (ids, timestamps, correlation ids preserved). Replaces the M2 `NotImplementedError` stub.
-- `Transport.history(topic, since=, until=, idle_timeout=)` Protocol method. NATS implementation uses an ephemeral durable pull consumer (`DeliverPolicy.BY_START_TIME` / `ALL`) that auto-deletes on close. Kafka raises `NotImplementedError` for now — lands in a follow-up.
-- `aetherbus.replay_ui.backend` FastAPI app with `/`, `/api/streams`, `/api/streams/{name}/events`, `/api/events/{id}`, `/api/streams/{name}/tail` (WebSocket), `/api/replay`.
-- `aetherbus-ui serve [--port 7798] [--bus URL] [--config PATH] [--host 127.0.0.1]` CLI (Typer). Loopback-only by default per PRD §6.7.
-- Single Jinja template + vanilla JS viewer at `/` — streams sidebar, event table, click-to-inspect modal, live tail toggle. Throwaway; the React SPA replaces it in M5b.
-- 4 new unit tests for `bus.replay()` (in-order, sandbox re-publish preserves bytes, sandbox failure → outbox, caller-break).
-- 7 new FastAPI tests via `TestClient` against a stub transport (HTML route, streams list, history paging + limit, event-by-id success + 404, replay endpoint).
+- `Transport.history()` Protocol method. NATS uses an ephemeral pull consumer with `DeliverPolicy.BY_START_TIME` / `ALL`; Kafka uses `offsets_for_times` + per-partition seek + end-of-snapshot detection via `end_offsets`. Reads are non-destructive on both transports.
 
-**Changed**
+**Backend (`aetherbus.replay_ui.backend`)**
+- FastAPI app with `/`, `/api/streams`, `/api/streams/{name}/events`, `/api/events/{id}`, `/api/streams/{name}/tail` (WebSocket), `/api/replay`.
+- `/api/replay` does both dry-run (returns IDs that would replay) and real sandbox-replay (re-emits raw envelopes into the sandbox bus, ids preserved). Sandbox setup failures wrap as 502.
+- `aetherbus-ui serve [--port 7798] [--bus URL] [--config PATH] [--host 127.0.0.1]` CLI (Typer). Loopback-only by default per PRD §6.7.
+- Backend probes `frontend/dist/` at startup: serves the React SPA when present, falls back to a single Jinja viewer otherwise. Either way the API surface is identical.
+
+**Frontend (React SPA)**
+- `src/aetherbus/replay_ui/frontend/` — Vite + React 18 + TypeScript + Tailwind + TanStack Query.
+- Hand-rolled UI components (button, badge, input, dialog) styled in the same dark palette. Skipped the shadcn CLI / Radix / cva path to keep the dep tree small.
+- Live tail via WebSocket — header status pill reflects connection state; new events prepend (capped at 200).
+- Sandbox-URL input next to the Replay button — blank = dry run, populated = real re-emit into that bus. Result panel shows count + mode.
+- Event detail dialog renders `depends_on` as clickable chips. Clicking pushes the current event onto a breadcrumb stack and jumps to the ancestor; back arrow pops. Full DAG layout deferred to a polish PR.
+- Vite dev proxy forwards `/api` and the WebSocket so `npm run dev` hot-reloads against a running backend.
+
+**Packaging**
+- Wheel bundles the built SPA. `pyproject.toml` `[tool.hatch.build.targets.wheel.force-include]` adds `frontend/dist/` to the wheel when it exists; an `exclude` block strips the frontend source so the wheel stays small (~112 KB).
+- `scripts/build-wheel.sh` — chains `npm install` + `npm run build` + `hatch build` for the release flow.
+
+**Tests**
+- 4 new unit tests for `bus.replay()` (in-order, sandbox re-publish preserves bytes, sandbox failure → outbox, caller-break).
+- 8 new FastAPI tests via `TestClient` (HTML route, streams list, history paging + limit, event-by-id success + 404, replay dry-run, replay sandbox-failure → 502).
+- New conformance test `test_bus_replay_iterates_history` parametrized over both transports — integration suite now 8 tests (4 scenarios × 2 transports).
+
+### Changed
 - `fastapi`, `uvicorn`, `websockets`, `jinja2` promoted to `dev` extras so the replay-ui tests run by default.
 
-**Implementation notes**
+### Implementation notes
 - `replay(into=)` calls the sandbox transport's `publish()` with the original bytes so re-emitted events keep their original ids and timestamps — the audit trail survives a fork. Sandbox transport failures route through the sandbox bus's outbox, mirroring the live-publish path.
+- Kafka `history()` opens a fresh consumer group on every call so reads are isolated from production consumers and don't disturb commit cursors.
 
 ---
 

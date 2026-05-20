@@ -109,24 +109,49 @@ asyncio.run(main())
 
 ## Replay UI
 
+![Replay UI demo](docs/replay-ui-demo.gif)
+
+> The GIF above is captured from the wedge demo below — three terminals, ~60 seconds end to end. See `docs/replay-ui-demo.gif` for the recording (placeholder until the first cut lands).
+
+### One-shot
+
+When `aetherbus` is installed from PyPI the SPA is already bundled — `pip install aetherbus[replay]` + `aetherbus-ui serve` is all you need. From a fresh git checkout:
+
 ```bash
 docker compose up -d nats
-(cd src/aetherbus/replay_ui/frontend && npm install && npm run build)   # once
+(cd src/aetherbus/replay_ui/frontend && npm install && npm run build)   # once per checkout
 aetherbus-ui serve                                                       # http://localhost:7798
 ```
 
-A loopback-only FastAPI backend exposes the bus over REST + WebSocket; the React SPA (Vite + TanStack Query + Tailwind) ships in `src/aetherbus/replay_ui/frontend/`. The first `npm install + build` populates `dist/`; the backend serves it. **Without the build**, the same backend falls back to a single Jinja viewer so you still have something to look at.
+The backend probes `frontend/dist/` at startup. **Without the build**, the same backend falls back to a single Jinja viewer so you still have something to look at.
 
-For frontend dev:
+### Demo recipe (the screen-recording flow)
+
+Three terminals:
+
+```bash
+# 1. broker
+docker compose up -d nats
+
+# 2. UI
+aetherbus-ui serve
+
+# 3. publisher loop
+while sleep 2; do python examples/poke.py "$RANDOM"; done
+```
+
+In the UI: pick the stream → type `dev.aetherbus.research.finding.v1` → click **Tail**. Events arrive every two seconds. Click any row for the full envelope. Stop the publisher, click **Replay → sandbox** with `nats://localhost:4222` in the sandbox box → those events re-emit with their original IDs.
+
+### Frontend dev loop
 
 ```bash
 aetherbus-ui serve --port 7798                       # terminal A
 cd src/aetherbus/replay_ui/frontend && npm run dev    # terminal B (http://localhost:5173)
 ```
 
-Vite proxies `/api` and `/api/*/tail` (WebSocket) to FastAPI so the SPA hot-reloads while the backend keeps running.
+Vite proxies `/api` and the WebSocket to FastAPI so the SPA hot-reloads while the backend keeps running.
 
-Programmatic replay also works:
+### Programmatic replay
 
 ```python
 async with Bus.from_env() as bus:
@@ -156,7 +181,7 @@ See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Targ
 - ✅ M2 — Core (`Bus`, `Event`, outbox, tests)
 - ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
 - ✅ M4 — Kafka transport (`transport_type: kafka`; same `Bus` API, same conformance suite)
-- 🚧 M5 — Replay UI — **M5a backend + M5b React SPA + Kafka history all live**; sandbox replay execution + README GIF in M5c
+- ✅ M5 — Replay UI (FastAPI + React SPA + sandbox replay + bus.replay on both transports)
 - M6 — Framework adapters (LangGraph, CrewAI, OpenAI Agents SDK)
 - M7 — Polish + launch
 

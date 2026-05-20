@@ -132,3 +132,20 @@ def test_replay_endpoint_returns_event_ids(client: TestClient) -> None:
     body = resp.json()
     assert body["count"] == 3
     assert len(body["event_ids"]) == 3
+    assert body["dry_run"] is True
+    assert body["sandbox_url"] is None
+
+
+def test_replay_endpoint_with_bad_sandbox_returns_502(client: TestClient) -> None:
+    # An unknown transport_type fails fast at Bus(_) construction; the route
+    # wraps any sandbox setup error as a 502.
+    resp = client.post(
+        "/api/replay",
+        json={
+            "topic": "t.v1",
+            "sandbox_url": "redis://localhost:6379",
+            "sandbox_transport_type": "redis-not-a-real-transport",
+        },
+    )
+    assert resp.status_code == 502
+    assert "sandbox replay failed" in resp.json()["detail"]

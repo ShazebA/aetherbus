@@ -67,12 +67,15 @@ class ReplayRequest(BaseModel):
     topic: str
     since: datetime | None = None
     until: datetime | None = None
-    sandbox_url: str | None = None  # M5c will wire this up
+    sandbox_url: str | None = None  # if None: dry run; else re-emit into that bus
+    sandbox_transport_type: str = "nats"
 
 
 class ReplayResponse(BaseModel):
     event_ids: list[str]
     count: int
+    sandbox_url: str | None = None
+    dry_run: bool = True
 
 
 # ----- app builder ----------------------------------------------------------
@@ -107,7 +110,7 @@ def create_app(bus: Bus | None = None) -> FastAPI:
         )
 
     @fastapi_app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def index(request: Request):  # noqa: ANN202 — union return tickles Pydantic
+    async def index(request: Request):
         if spa_built:
             return FileResponse(SPA_INDEX, media_type="text/html")
         return templates.TemplateResponse(
@@ -185,11 +188,48 @@ def create_app(bus: Bus | None = None) -> FastAPI:
 
     @fastapi_app.post("/api/replay")
     async def replay(req: ReplayRequest) -> ReplayResponse:
-        # M5a returns IDs; M5c performs the actual sandbox publish.
-        ids: list[str] = []
-        async for ev in owned_bus.replay(req.topic, since=req.since, until=req.until):
-            ids.append(ev.id)
-        return ReplayResponse(event_ids=ids, count=len(ids))
+        # Dry run: just iterate history and return the IDs that would replay.
+        if not req.sandbox_url:
+            ids: list[str] = []
+            async for ev in owned_bus.replay(
+                req.topic, since=req.since, until=req.until
+            ):
+                ids.append(ev.id)
+            return ReplayResponse(
+                event_ids=ids, count=len(ids), sandbox_url=None, dry_run=True
+            )
+
+        # Real replay: re-emit raw envelope bytes into the sandbox bus. ID,
+        # time, source, correlation_id all preserved (see bus.replay docstring).
+        replayed: list[str] = []
+        try:
+            sandbox_settings = Settings(
+                transport_type=req.sandbox_transport_type,
+                transport_url=req.sandbox_url,
+                outbox_path="/tmp/aetherbus-sandbox-outbox.sqlite",
+                stream_name="AETHERBUS_SANDBOX",
+                stream_subjects=tuple(owned_bus._settings.stream_subjects),
+            )
+            sandbox = Bus(sandbox_settings)
+            async with sandbox:
+                async for ev in owned_bus.replay(
+                    req.topic,
+                    since=req.since,
+                    until=req.until,
+                    into=sandbox,
+                ):
+                    replayed.append(ev.id)
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"sandbox replay failed: {e}",
+            ) from e
+        return ReplayResponse(
+            event_ids=replayed,
+            count=len(replayed),
+            sandbox_url=req.sandbox_url,
+            dry_run=False,
+        )
 
     return fastapi_app
 

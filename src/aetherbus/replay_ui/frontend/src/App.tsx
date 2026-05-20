@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Radio, Search, X } from "lucide-react";
+import { Activity, ArrowLeft, GitBranch, Radio, Search, X } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -7,7 +7,7 @@ import {
   type EventSummary,
   useEventDetail,
   useEvents,
-  useReplayDryRun,
+  useReplay,
   useStreams,
 } from "./api";
 
@@ -160,10 +160,16 @@ function StreamsSidebar({
 function EventDetailDialog({
   eventId,
   topic,
+  history,
+  onPickAncestor,
+  onPopAncestor,
   onClose,
 }: {
   eventId: string | null;
   topic: string;
+  history: string[]; // breadcrumb stack of previously-viewed event ids
+  onPickAncestor: (id: string) => void;
+  onPopAncestor: () => void;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -174,6 +180,12 @@ function EventDetailDialog({
     else dialogRef.current?.close();
   }, [eventId]);
 
+  const dependsOn = useMemo(() => {
+    const raw = data?.envelope?.aetherbusdependencies;
+    if (typeof raw !== "string" || raw.length === 0) return [];
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  }, [data]);
+
   return (
     <dialog
       ref={dialogRef}
@@ -181,7 +193,24 @@ function EventDetailDialog({
       className="rounded-lg border border-border bg-surface text-fg w-[min(900px,90vw)] p-0 backdrop:bg-black/70"
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h3 className="font-semibold">Event detail</h3>
+        <div className="flex items-center gap-2">
+          {history.length > 0 && (
+            <Button
+              variant="ghost"
+              onClick={onPopAncestor}
+              className="p-1 h-auto"
+              title={`Back to ${history[history.length - 1].slice(0, 8)}…`}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+          )}
+          <h3 className="font-semibold">Event detail</h3>
+          {history.length > 0 && (
+            <span className="text-xs text-muted">
+              · viewing ancestor (depth {history.length})
+            </span>
+          )}
+        </div>
         <Button variant="ghost" onClick={onClose} className="p-1 h-auto">
           <X className="w-4 h-4" />
         </Button>
@@ -195,6 +224,28 @@ function EventDetailDialog({
                 {JSON.stringify(data.envelope, null, 2)}
               </pre>
             </Section>
+            {dependsOn.length > 0 && (
+              <Section
+                title={
+                  <span className="inline-flex items-center gap-1.5">
+                    <GitBranch className="w-3 h-3" />
+                    depends_on
+                  </span>
+                }
+              >
+                <div className="flex flex-wrap gap-1.5">
+                  {dependsOn.map((id) => (
+                    <button
+                      key={id}
+                      onClick={() => onPickAncestor(id)}
+                      className="font-mono text-[11px] px-2 py-1 rounded-md border border-border bg-bg hover:bg-accent/10 hover:border-accent/40 transition-colors"
+                    >
+                      {id.slice(0, 12)}…
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            )}
             {data.dataref ? (
               <Section title="dataref">
                 <code className="text-[12px] font-mono break-all">{data.dataref}</code>
@@ -216,7 +267,7 @@ function EventDetailDialog({
 function Section({
   title,
   children,
-}: React.PropsWithChildren<{ title: string }>) {
+}: React.PropsWithChildren<{ title: React.ReactNode }>) {
   return (
     <div>
       <div className="text-[11px] uppercase tracking-widest text-muted mb-1.5">
@@ -287,9 +338,11 @@ export function App() {
   const [topic, setTopic] = useState("dev.aetherbus.research.finding.v1");
   const [tailing, setTailing] = useState(false);
   const [pickedEvent, setPickedEvent] = useState<string | null>(null);
+  const [ancestorStack, setAncestorStack] = useState<string[]>([]);
   const [liveEvents, setLiveEvents] = useState<EventSummary[]>([]);
   const [showLive, setShowLive] = useState(false);
-  const replayDryRun = useReplayDryRun();
+  const [sandboxUrl, setSandboxUrl] = useState("");
+  const replay = useReplay();
 
   // When the user clicks "Load history" we display the history results;
   // when tailing is enabled we display the live buffer.
@@ -355,21 +408,55 @@ export function App() {
               <Radio className="w-3.5 h-3.5" />
               {tailing ? "Stop tail" : "Tail"}
             </Button>
+            <Input
+              placeholder="sandbox bus URL (optional — leave blank for dry run)"
+              value={sandboxUrl}
+              onChange={(e) => setSandboxUrl(e.target.value)}
+              className="max-w-sm"
+            />
             <Button
               variant="secondary"
-              onClick={() => replayDryRun.mutate({ topic })}
-              disabled={!topic}
-              title="Returns the event IDs that would replay (M5c performs the sandbox publish)"
+              onClick={() =>
+                replay.mutate({
+                  topic,
+                  sandbox_url: sandboxUrl.trim() || undefined,
+                })
+              }
+              disabled={!topic || replay.isPending}
+              title={
+                sandboxUrl.trim()
+                  ? `Re-emit history onto ${sandboxUrl}`
+                  : "Dry run — returns the event IDs without publishing"
+              }
             >
-              Replay (dry run)
+              {sandboxUrl.trim() ? "Replay → sandbox" : "Replay (dry run)"}
             </Button>
           </div>
 
-          {replayDryRun.data && (
-            <div className="border border-border bg-surface rounded-md p-3 text-sm">
-              <span className="text-muted">Would replay </span>
-              <span className="font-semibold">{replayDryRun.data.count}</span>
-              <span className="text-muted"> events.</span>
+          {replay.data && (
+            <div className="border border-border bg-surface rounded-md p-3 text-sm flex items-center gap-2">
+              {replay.data.dry_run ? (
+                <>
+                  <Badge>dry run</Badge>
+                  <span className="text-muted">would replay</span>
+                  <span className="font-semibold">{replay.data.count}</span>
+                  <span className="text-muted">events.</span>
+                </>
+              ) : (
+                <>
+                  <Badge>replayed</Badge>
+                  <span className="font-semibold">{replay.data.count}</span>
+                  <span className="text-muted">events into</span>
+                  <code className="text-xs font-mono">
+                    {replay.data.sandbox_url}
+                  </code>
+                </>
+              )}
+            </div>
+          )}
+          {replay.error && (
+            <div className="border border-red-500/40 bg-red-500/10 text-red-200 rounded-md p-3 text-sm font-mono">
+              {replay.error.message}
             </div>
           )}
 
@@ -388,7 +475,25 @@ export function App() {
       <EventDetailDialog
         eventId={pickedEvent}
         topic={topic}
-        onClose={() => setPickedEvent(null)}
+        history={ancestorStack}
+        onPickAncestor={(id) => {
+          if (pickedEvent) {
+            setAncestorStack((prev) => [...prev, pickedEvent]);
+          }
+          setPickedEvent(id);
+        }}
+        onPopAncestor={() => {
+          setAncestorStack((prev) => {
+            const next = [...prev];
+            const prevId = next.pop();
+            if (prevId) setPickedEvent(prevId);
+            return next;
+          });
+        }}
+        onClose={() => {
+          setPickedEvent(null);
+          setAncestorStack([]);
+        }}
       />
     </div>
   );
