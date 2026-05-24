@@ -388,6 +388,10 @@ export function App() {
             />
             <Button
               onClick={() => {
+                // Switch to history view explicitly: stop the live WebSocket
+                // and drop its buffer so the table can't be in an ambiguous
+                // mixed state. Re-click Tail to resume live mode.
+                setTailing(false);
                 setShowLive(false);
                 setLiveEvents([]);
                 history.refetch();
