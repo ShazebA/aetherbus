@@ -148,8 +148,17 @@ class NATSTransport:
             filter_subject=topic,
         )
 
-        psub = await self._js.pull_subscribe(topic, durable=durable, config=cfg)
+        # Snapshot the stream's tail BEFORE iterating. If anything publishes
+        # into the same stream while we're reading (the canonical case is
+        # sandbox replay pointed at the same broker), we'd otherwise enter
+        # a feedback loop — our own re-emissions become "new" history for
+        # the pull consumer and we never stop. Kafka's history() pins this
+        # via end_offsets(); for JetStream we pin via stream.state.last_seq.
         stream_name = await self._js.find_stream_name_by_subject(topic)
+        info = await self._js.stream_info(stream_name)
+        snapshot_last_seq = info.state.last_seq
+
+        psub = await self._js.pull_subscribe(topic, durable=durable, config=cfg)
         try:
             while True:
                 try:
@@ -161,8 +170,20 @@ class NATSTransport:
                     return
 
                 for nm in batch:
-                    if until is not None and nm.metadata is not None:
-                        ts = nm.metadata.timestamp
+                    # Stop at the end-of-history snapshot — anything past it
+                    # is a fresh publish that arrived after we started.
+                    meta = nm.metadata
+                    seq = (
+                        meta.sequence.stream
+                        if meta is not None and meta.sequence is not None
+                        else None
+                    )
+                    if seq is not None and seq > snapshot_last_seq:
+                        await nm.ack()
+                        return
+
+                    if until is not None and meta is not None:
+                        ts = meta.timestamp
                         if ts is not None and ts > until:
                             await nm.ack()
                             return
@@ -175,6 +196,10 @@ class NATSTransport:
                     # Replay reads are non-destructive but we still ack so the
                     # ephemeral consumer's pending count doesn't grow.
                     await nm.ack()
+
+                    # Bail as soon as we've drained the snapshot, even mid-batch.
+                    if seq is not None and seq >= snapshot_last_seq:
+                        return
         finally:
             try:
                 await self._js.delete_consumer(stream_name, durable)

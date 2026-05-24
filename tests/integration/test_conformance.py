@@ -94,6 +94,42 @@ async def test_bus_replay_iterates_history(bus_factory, topic_ns) -> None:
 
 
 @pytest.mark.asyncio
+async def test_replay_into_same_broker_terminates(bus_factory, topic_ns) -> None:
+    """Same-broker sandbox replay must not feedback-loop on its own re-emissions.
+
+    Regression for the JetStream pull-consumer bug: history() needs to snapshot
+    the end-of-stream BEFORE iterating so events we publish during the iteration
+    don't extend the loop. Kafka uses end_offsets; NATS pins to stream.state.last_seq.
+    """
+    topic = f"{topic_ns}.feedback.v1"
+
+    # Publish exactly one event into the broker.
+    pub_bus = bus_factory()
+    async with pub_bus:
+        await pub_bus.publish(topic, payload={"only": "event"})
+
+    # Source bus replays history into a sandbox pointed at the *same* broker.
+    # Without the snapshot fix this loops indefinitely (or until JetStream's
+    # max_msgs cap), publishing geometric copies.
+    src_bus = bus_factory()
+    sandbox_bus = bus_factory()
+
+    replayed: list[str] = []
+    async with sandbox_bus:
+        async for ev in src_bus.replay(topic, into=sandbox_bus, idle_timeout=1.0):
+            replayed.append(ev.id)
+            # Abort fast if the bug ever resurfaces; without this the test
+            # would hang on idle_timeout each iteration.
+            if len(replayed) > 5:
+                pytest.fail(
+                    f"replay did not terminate at end-of-history snapshot; "
+                    f"yielded {len(replayed)}+ events after publishing 1"
+                )
+
+    assert len(replayed) == 1
+
+
+@pytest.mark.asyncio
 async def test_replay_from_earliest(bus_factory, topic_ns) -> None:
     # Publish first (with a transient bus), then subscribe with replay_from=earliest.
     # The shared stream covers `test.>`; the unique topic_ns keeps this test's

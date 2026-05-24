@@ -57,16 +57,36 @@ export function useEventDetail(eventId: string | null, topic: string) {
   });
 }
 
-export function useReplayDryRun() {
-  return useMutation({
-    mutationFn: async (body: { topic: string; since?: string; until?: string }) => {
+export interface ReplayResult {
+  count: number;
+  event_ids: string[];
+  sandbox_url: string | null;
+  dry_run: boolean;
+}
+
+export function useReplay() {
+  return useMutation<
+    ReplayResult,
+    Error,
+    {
+      topic: string;
+      since?: string;
+      until?: string;
+      sandbox_url?: string;
+      sandbox_transport_type?: string;
+    }
+  >({
+    mutationFn: async (body) => {
       const resp = await fetch("/api/replay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!resp.ok) throw new Error(`replay → ${resp.status}`);
-      return (await resp.json()) as { count: number; event_ids: string[] };
+      if (!resp.ok) {
+        const detail = await resp.text();
+        throw new Error(`replay → ${resp.status}: ${detail}`);
+      }
+      return (await resp.json()) as ReplayResult;
     },
   });
 }
