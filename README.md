@@ -199,17 +199,6 @@ pytest -q
 
 Integration tests use `testcontainers` to spin up NATS automatically; set `AETHERBUS_TEST_NATS_URL=nats://localhost:4222` to reuse the compose-managed instance and skip the container start.
 
-## Roadmap
-
-See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Target: 8 weekends to v1.
-
-- ✅ M1 — Spike (NATS + CloudEvents publish/subscribe) → see [examples/spike.py](examples/spike.py)
-- ✅ M2 — Core (`Bus`, `Event`, outbox, tests)
-- ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
-- ✅ M4 — Kafka transport (`transport_type: kafka`; same `Bus` API, same conformance suite)
-- ✅ M5 — Replay UI (FastAPI + React SPA + sandbox replay + bus.replay on both transports)
-- ✅ M6 — Framework adapters → [LangGraph](examples/langgraph_pipeline.py) · [CrewAI](examples/crewai_pipeline.py) · [OpenAI Agents SDK](examples/openai_agents_demo.py)
-- M7 — Polish + launch
 
 ## License
 
