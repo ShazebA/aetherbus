@@ -1,0 +1,85 @@
+site_name: AetherBus
+site_description: Event-driven context layer for AI agents — CloudEvents over NATS/Kafka with MCP-native resolution and replay.
+site_url: https://aetherbus.dev/
+repo_url: https://github.com/ShazebA/aetherbus
+repo_name: ShazebA/aetherbus
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Replay UI: replay-ui.md
+  - Architecture:
+      - Overview: architecture/index.md
+      - Envelope: architecture/envelope.md
+      - Transports: architecture/transports.md
+      - ADRs:
+          - architecture/adrs/index.md
+          - "ADR-001 — NATS as default": architecture/adrs/0001-nats-jetstream-as-default-transport.md
+          - "ADR-002 — CloudEvents envelope": architecture/adrs/0002-cloudevents-structured-envelope.md
+          - "ADR-003 — Pydantic v2": architecture/adrs/0003-pydantic-v2-for-payloads.md
+          - "ADR-004 — MCP poke-then-read": architecture/adrs/0004-mcp-poke-then-read-semantics.md
+          - "ADR-005 — UUIDv7": architecture/adrs/0005-uuidv7-event-ids.md
+  - Reference:
+      - reference/bus.md
+      - reference/event.md
+      - reference/resolver.md
+  - Project:
+      - PRD: project/prd.md
+      - Changelog: project/changelog.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ShazebA/aetherbus
