@@ -203,11 +203,19 @@ def create_app(bus: Bus | None = None) -> FastAPI:
         # time, source, correlation_id all preserved (see bus.replay docstring).
         replayed: list[str] = []
         try:
+            # Reuse the production stream NAME so a same-broker "sandbox"
+            # (the common dev case where sandbox_url == AETHERBUS_URL) doesn't
+            # try to claim overlapping subjects on a second stream — JetStream
+            # rejects that with `subjects overlap with an existing stream`.
+            # On a truly isolated broker that stream doesn't exist yet, so
+            # ensure_stream creates it the same way it would for production.
+            # Per PRD §5.6 the sandbox primitive presumes a different broker
+            # (account isolation); same-broker replay is effectively re-emit.
             sandbox_settings = Settings(
                 transport_type=req.sandbox_transport_type,
                 transport_url=req.sandbox_url,
                 outbox_path="/tmp/aetherbus-sandbox-outbox.sqlite",
-                stream_name="AETHERBUS_SANDBOX",
+                stream_name=owned_bus._settings.stream_name,
                 stream_subjects=tuple(owned_bus._settings.stream_subjects),
             )
             sandbox = Bus(sandbox_settings)
