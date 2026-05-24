@@ -8,7 +8,21 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-### M6 — Framework adapters (in flight on `feature/m6-framework-adapters`)
+### M7 — Polish + launch (in flight on `feature/m7-polish-launch`)
+
+**Added**
+- **mkdocs-material site** under `docs/` — landing page, three-quickstart, replay UI page, architecture (envelope + transports + ADR index), reference (Bus / Event / Resolver). Builds clean with `mkdocs build --strict`.
+- **`mkdocs.yml`** at repo root with Material theme, Mermaid diagram support, tabbed code samples, dark/light toggle.
+- **Three launch artifacts** in `docs/launch/`: blog (Substack-shaped framing post), hn (Show HN draft + posting checklist + hour-1 reply templates), social (r/LocalLLaMA + r/AI_Agents + LinkedIn variants).
+- **`docs/release-notes-v1.0.0.md`** — for `gh release create --notes-file`.
+- **README polish** — shields badges, Mermaid architecture diagram replaces ASCII, opening tightened.
+
+**Changed**
+- CHANGELOG promotes M6 from Unreleased to a dated milestone section.
+
+---
+
+## M6 — Framework adapters — 2026-05-20 (merged via [PR #9](https://github.com/ShazebA/aetherbus/pull/9))
 
 **Added**
 - `aetherbus.adapters.langgraph.bus_node(bus, topic, *, payload_key, pass_through)` — a LangGraph node that publishes ``state[payload_key]`` onto the bus and stamps the event id at ``state["_aetherbus_event_id"]``. 64 LOC; doesn't import LangGraph itself (works against any dict/attr state).

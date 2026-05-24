@@ -1,8 +1,34 @@
 # AetherBus
 
-> Event-driven context layer for AI agents. CloudEvents over NATS/Kafka, with pointers — not payloads — and an MCP adapter so any MCP client can consume the stream.
+> **Event-driven context layer for AI agents.** CloudEvents over NATS / Kafka, with pointers — not payloads — and an MCP adapter so any MCP-capable client can consume the stream.
 
-**Status:** pre-alpha. The full v1 spec lives in [PRD_AetherBus.md](PRD_AetherBus.md). M3 (resolvers + MCP adapter — the strategic wedge) just landed.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE) [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-95_passing-success)](tests/) [![Docs](https://img.shields.io/badge/docs-aetherbus.dev-indigo)](https://aetherbus.dev/)
+
+![Replay UI demo](docs/replay-ui-demo.gif)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Producer Agent] -->|publish CloudEvent| B[Broker]
+    B -->|push| C[Subscriber Agent]
+    B -->|push| D[MCP Adapter]
+    D -->|notifications/resources/updated| E[Claude Code / Desktop / Cursor]
+    E -->|resources/read| D
+    B -->|history| F[Replay UI]
+    C -->|resolve dataref| G[(mcp:// vec:// git:// file:// https://)]
+
+    subgraph Broker[" NATS JetStream  |  Kafka "]
+      B
+    end
+    subgraph Resolvers[Resolver SDK]
+      G
+    end
+```
+
+Events carry a `dataref` URI; subscribers resolve content on demand. The MCP adapter exposes any bus topic as a live MCP resource. Full spec: [PRD_AetherBus.md](PRD_AetherBus.md). Docs: [aetherbus.dev](https://aetherbus.dev/).
+
+
 
 ## The wedge — bus stream → MCP resource → any MCP client
 
