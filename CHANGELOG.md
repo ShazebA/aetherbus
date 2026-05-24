@@ -8,7 +8,18 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
-(no entries yet — next is M6 framework adapters per PRD §7.1)
+### M6 — Framework adapters (in flight on `feature/m6-framework-adapters`)
+
+**Added**
+- `aetherbus.adapters.langgraph.bus_node(bus, topic, *, payload_key, pass_through)` — a LangGraph node that publishes ``state[payload_key]`` onto the bus and stamps the event id at ``state["_aetherbus_event_id"]``. 64 LOC; doesn't import LangGraph itself (works against any dict/attr state).
+- `aetherbus.adapters.crewai.bus_listen(bus, topic, queue_group=...)` decorator + `wire_bus_listeners(flow_instance, bus=None)` helper. Decoration is metadata-only; subscription happens when you call `wire_bus_listeners(flow)` after the Flow instance exists. 81 LOC; framework-independent.
+- `aetherbus.adapters.openai_agents.as_tool(bus, topic, *, name, description)` — wraps a topic as an openai-agents `function_tool`. Raises a clear `ImportError` pointing at the `[openai]` extra if the SDK isn't installed. 55 LOC.
+- Example apps: `examples/langgraph_pipeline.py`, `examples/crewai_pipeline.py`, `examples/openai_agents_demo.py`.
+- 11 new unit tests (5 LangGraph, 5 CrewAI, 1 OpenAI import-error path; 1 SDK-gated success test that skips when `agents` isn't installed). All three adapters use fake-bus tests; no heavy framework deps added to `[dev]`.
+
+**Implementation notes**
+- All three adapters lazy-import their respective frameworks inside the API functions, so `import aetherbus.adapters.X` succeeds even without the extra installed; ImportError fires only when the user actually constructs an adapter. Surfaces a clear `pip install` hint.
+- Each adapter is under the PRD §6.6 budget of 100 LOC (200 total across all three).
 
 ---
 

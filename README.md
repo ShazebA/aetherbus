@@ -182,7 +182,7 @@ See [PRD_AetherBus.md §7.1](PRD_AetherBus.md) for the full milestone plan. Targ
 - ✅ M3 — Resolvers + MCP server adapter — *strategic wedge above* → see [examples/poke.py](examples/poke.py)
 - ✅ M4 — Kafka transport (`transport_type: kafka`; same `Bus` API, same conformance suite)
 - ✅ M5 — Replay UI (FastAPI + React SPA + sandbox replay + bus.replay on both transports)
-- M6 — Framework adapters (LangGraph, CrewAI, OpenAI Agents SDK)
+- ✅ M6 — Framework adapters → [LangGraph](examples/langgraph_pipeline.py) · [CrewAI](examples/crewai_pipeline.py) · [OpenAI Agents SDK](examples/openai_agents_demo.py)
 - M7 — Polish + launch
 
 ## License
