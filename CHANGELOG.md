@@ -13,7 +13,7 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 **Added**
 - **mkdocs-material site** under `docs/` — landing page, three-quickstart, replay UI page, architecture (envelope + transports + ADR index), reference (Bus / Event / Resolver). Builds clean with `mkdocs build --strict`.
 - **`mkdocs.yml`** at repo root with Material theme, Mermaid diagram support, tabbed code samples, dark/light toggle.
-- **Three launch artifacts** in `docs/launch/`: blog (Substack-shaped framing post), hn (Show HN draft + posting checklist + hour-1 reply templates), social (r/LocalLLaMA + r/AI_Agents + LinkedIn variants).
+- **Three launch artifact drafts** in `docs/launch/` (gitignored — personal voice + posting checklists): blog (Substack-shaped framing post), hn (Show HN draft + posting checklist + hour-1 reply templates), social (r/LocalLLaMA + r/AI_Agents + LinkedIn variants).
 - **`docs/release-notes-v1.0.0.md`** — for `gh release create --notes-file`.
 - **README polish** — shields badges, Mermaid architecture diagram replaces ASCII, opening tightened.
 

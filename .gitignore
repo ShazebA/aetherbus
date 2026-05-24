@@ -46,6 +46,9 @@ site/
 # `aetherbus-mcp` binary is on PyPI and findable via PATH on every dev box.
 .mcp.json
 
+# Launch artifact drafts — personal voice + posting checklists. Local only.
+docs/launch/
+
 # Frontend (replay UI)
 node_modules/
 src/aetherbus/replay_ui/frontend/dist/
