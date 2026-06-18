@@ -187,6 +187,25 @@ async with Bus.from_env() as bus:
 
 Pass `into=other_bus` to re-emit history into a sandbox bus — same envelopes, same ids, same correlation ids. Per PRD §5.6 the sandbox primitive enables fork-from-here debugging.
 
+### Runs API (run-centric view)
+
+Alongside the stream routes, the backend groups events into **runs** — every
+event sharing one `aetherbuscorrelationid`. The run index backfills from history
+on startup and ingests live events while a client tails. Publish with a
+`correlation_id` (and `depends_on` for the provenance DAG) and the runs surface
+reconstructs the trace:
+
+```bash
+curl localhost:7798/api/runs                 # [{ correlation_id, status, duration_ms, event_count, ... }]
+curl localhost:7798/api/runs/<cid>           # run summary + ordered events
+curl localhost:7798/api/runs/<cid>/graph     # { nodes, edges } provenance DAG from depends_on
+```
+
+Run status is inferred from topic conventions (`.error.v1`/`.failed.v1` →
+`errored`; `.completed.v1`/`.done.v1` → `ok`; otherwise `running`). Events with
+no correlation id form single-event runs so nothing is invisible. This is the
+data layer for the run explorer; the dashboard rebuild around it is upcoming.
+
 ## Develop
 
 ```bash

@@ -8,7 +8,13 @@ Routes (PRD §6.7):
 - ``WS   /api/streams/{name}/tail``   — push live events as they arrive.
 - ``POST /api/replay``                — return the event IDs that would replay (M5a stub).
 
-M5b will swap the HTML for a real React SPA; the API surface stays the same.
+Run-centric routes (M8 — the observability pivot, grouped by correlation id):
+- ``GET  /api/runs``                  — list runs; ``status``/``limit`` query params.
+- ``GET  /api/runs/{cid}``            — run summary + ordered event list.
+- ``GET  /api/runs/{cid}/graph``      — provenance DAG (nodes + edges from depends_on).
+
+M5b swapped the HTML for a React SPA; the stream API surface is unchanged. M10
+rebuilds the SPA around these run routes.
 """
 from __future__ import annotations
 
@@ -30,6 +36,7 @@ from ...bus import Bus
 from ...config import Settings
 from ...envelope import Envelope
 from ...event import Event
+from ...observability import RunIndex, RunSummaryRow
 from ...transports.base import Msg
 
 logger = logging.getLogger(__name__)
@@ -63,6 +70,50 @@ class EventDetail(BaseModel):
     dataref: str | None
 
 
+class RunSummary(BaseModel):
+    correlation_id: str
+    status: str
+    started_at: str | None
+    ended_at: str | None
+    duration_ms: float | None
+    event_count: int
+    error_count: int
+    first_source: str | None
+    last_topic: str | None
+
+
+class RunEventModel(BaseModel):
+    event_id: str
+    topic: str
+    source: str | None
+    time: str | None
+    has_error: bool
+    depends_on: list[str]
+
+
+class RunDetail(RunSummary):
+    events: list[RunEventModel]
+
+
+class RunGraphNode(BaseModel):
+    id: str
+    topic: str
+    source: str | None
+    time: str | None
+    has_error: bool
+
+
+class RunGraphEdge(BaseModel):
+    source: str
+    target: str
+
+
+class RunGraph(BaseModel):
+    correlation_id: str
+    nodes: list[RunGraphNode]
+    edges: list[RunGraphEdge]
+
+
 class ReplayRequest(BaseModel):
     topic: str
     since: datetime | None = None
@@ -87,11 +138,23 @@ def create_app(bus: Bus | None = None) -> FastAPI:
     if owned_bus is None:
         owned_bus = Bus.from_env()
 
+    run_index = RunIndex(owned_bus._settings.run_index_path)
+
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await owned_bus.connect()
+        await run_index.init()
+        # Backfill the run index from stored history. Backfill is the workhorse;
+        # the tail WebSocket path ingests live events best-effort while a client
+        # is connected. Always-on live capture lands with span streams in M9.
+        for subject in owned_bus._settings.stream_subjects:
+            try:
+                async for ev in owned_bus.replay(subject):
+                    await run_index.ingest(ev.envelope)
+            except Exception:
+                logger.exception("run index backfill failed for subject %s", subject)
         try:
             yield
         finally:
@@ -155,6 +218,12 @@ def create_app(bus: Bus | None = None) -> FastAPI:
         queue: asyncio.Queue[Msg] = asyncio.Queue(maxsize=256)
 
         async def _enqueue(msg: Msg) -> None:
+            # Capture into the run index on delivery (before any WS-queue drop)
+            # so live events still group into runs while a client tails.
+            try:
+                await run_index.ingest(Envelope.from_bytes(msg.data))
+            except Exception:
+                logger.exception("tail: run index ingest failed")
             try:
                 queue.put_nowait(msg)
             except asyncio.QueueFull:
@@ -239,6 +308,51 @@ def create_app(bus: Bus | None = None) -> FastAPI:
             dry_run=False,
         )
 
+    # ----- run-centric routes (M8) ------------------------------------------
+
+    @fastapi_app.get("/api/runs")
+    async def list_runs(status: str | None = None, limit: int = 50) -> list[RunSummary]:
+        rows = await run_index.list_runs(limit=limit, status=status)
+        return [_run_summary(r) for r in rows]
+
+    @fastapi_app.get("/api/runs/{cid}")
+    async def get_run(cid: str) -> RunDetail:
+        row = await run_index.get_run(cid)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"run {cid!r} not found")
+        events = await run_index.run_events(cid)
+        return RunDetail(
+            **_run_summary(row).model_dump(),
+            events=[
+                RunEventModel(
+                    event_id=e.event_id,
+                    topic=e.topic,
+                    source=e.source,
+                    time=e.time,
+                    has_error=e.has_error,
+                    depends_on=e.depends_on,
+                )
+                for e in events
+            ],
+        )
+
+    @fastapi_app.get("/api/runs/{cid}/graph")
+    async def get_run_graph(cid: str) -> RunGraph:
+        row = await run_index.get_run(cid)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"run {cid!r} not found")
+        nodes, edges = await run_index.run_graph(cid)
+        return RunGraph(
+            correlation_id=cid,
+            nodes=[
+                RunGraphNode(
+                    id=n.id, topic=n.topic, source=n.source, time=n.time, has_error=n.has_error
+                )
+                for n in nodes
+            ],
+            edges=[RunGraphEdge(source=e.source, target=e.target) for e in edges],
+        )
+
     return fastapi_app
 
 
@@ -257,6 +371,30 @@ def _detail_for(event: Event) -> EventDetail:
         envelope=json.loads(event.envelope.to_bytes()),
         inline_data=event.inline_data,
         dataref=event.dataref,
+    )
+
+
+def _duration_ms(started: str | None, ended: str | None) -> float | None:
+    if not started or not ended:
+        return None
+    try:
+        delta = datetime.fromisoformat(ended) - datetime.fromisoformat(started)
+    except ValueError:
+        return None
+    return round(delta.total_seconds() * 1000.0, 3)
+
+
+def _run_summary(r: RunSummaryRow) -> RunSummary:
+    return RunSummary(
+        correlation_id=r.correlation_id,
+        status=r.status,
+        started_at=r.started_at,
+        ended_at=r.ended_at,
+        duration_ms=_duration_ms(r.started_at, r.ended_at),
+        event_count=r.event_count,
+        error_count=r.error_count,
+        first_source=r.first_source,
+        last_topic=r.last_topic,
     )
 
 
