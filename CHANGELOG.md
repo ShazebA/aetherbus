@@ -8,6 +8,45 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
+### M8 — Run model + run-centric observability API (in flight on `feature/m8-run-model`)
+
+The post-v1.0 product pivot (Direction A — *agent observability + time-travel
+debugging*) starts here: AetherBus is topic-centric, observability is
+run-centric. M8 introduces a first-class **Run** (all events sharing one
+`aetherbuscorrelationid`) and the backend to list/inspect runs. Data layer + API
++ tests only — the UI rebuild is M10.
+
+**Added**
+- `aetherbus.observability.RunIndex` — SQLite-backed run index (reuses the
+  outbox's stdlib-sqlite-in-thread-executor pattern: WAL, one connection per
+  call, `asyncio.to_thread`). Groups events into runs by correlation id; events
+  with no correlation id become single-event runs keyed by their own id so
+  nothing is invisible. `ingest()` is idempotent on event id (safe to call from
+  both backfill and the live tail path). Methods: `ingest`, `list_runs`,
+  `get_run`, `run_events`, `run_graph` (provenance DAG from `depends_on`,
+  cross-run parents dropped).
+- Run-status heuristic (M8, deliberately simple): `errored` (any event whose
+  topic ends `.error.v1`/`.failed.v1`/`.failure.v1` — error always wins) >
+  `ok` (a terminal-success topic seen, e.g. `.completed.v1`/`.done.v1`) >
+  `running`. `bus.replay()` drops transport headers, so the topic `type` is the
+  only status signal on the backfill path; M9 spans will set status explicitly.
+- Backend run routes (`replay_ui/backend/app.py`): `GET /api/runs?status=&limit=`,
+  `GET /api/runs/{cid}`, `GET /api/runs/{cid}/graph` + `RunSummary`/`RunDetail`/
+  `RunGraph` response models. Added alongside the existing stream routes (M10
+  migrates the UI; the stream API stays).
+- Run index ingestion wired into the backend: a startup backfill walks
+  `stream_subjects` via `bus.replay()` (the workhorse), and the tail WebSocket
+  path ingests live events best-effort while a client is connected. Always-on
+  live capture lands with span streams in M9.
+- `Settings.run_index_path` (default `.runs.sqlite`, env `AETHERBUS_RUN_INDEX`,
+  YAML `run_index_path`).
+- 17 new tests: `tests/unit/test_run_index.py` (grouping, no-cid single-event
+  run, status transitions incl. error-wins, idempotent re-ingest, time-ordered
+  events + aggregates, DAG build + cross-run-edge drop, status/limit filters);
+  `tests/unit/test_runs_routes.py` (the three routes via `TestClient` +
+  StubTransport backfill); `tests/integration/test_runs_api.py` (live NATS —
+  publish a correlated chain, serve, assert the run reconstructs from history).
+
 ### M7 — Polish + launch (in flight on `feature/m7-polish-launch`)
 
 **Added**

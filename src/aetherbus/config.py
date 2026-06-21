@@ -28,12 +28,14 @@ class Settings:
     outbox_initial_backoff: float = 0.2
     outbox_max_backoff: float = 30.0
     inline_size_limit: int = 4096
+    run_index_path: str = ".runs.sqlite"
 
     @classmethod
     def from_env(cls) -> Settings:
         kwargs: dict[str, Any] = {
             "transport_url": os.environ.get("AETHERBUS_URL", "nats://localhost:4222"),
             "outbox_path": os.environ.get("AETHERBUS_OUTBOX", ".outbox.sqlite"),
+            "run_index_path": os.environ.get("AETHERBUS_RUN_INDEX", ".runs.sqlite"),
         }
         src = os.environ.get("AETHERBUS_SOURCE")
         if src:
@@ -55,4 +57,6 @@ class Settings:
         }
         if data.get("source"):
             kwargs["source"] = data["source"]
+        if data.get("run_index_path"):
+            kwargs["run_index_path"] = data["run_index_path"]
         return cls(**kwargs)
