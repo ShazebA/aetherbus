@@ -1,6 +1,7 @@
 """Replay UI backend — REST surface tests against a fake Bus."""
 from __future__ import annotations
 
+import sys
 from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,12 @@ from aetherbus import Bus
 from aetherbus.config import Settings
 from aetherbus.envelope import Envelope
 from aetherbus.replay_ui.backend.app import create_app
+
+# The real app *module*, for monkeypatching the SPA-detection globals. Reached
+# via sys.modules because `backend/__init__` rebinds the `app` attribute to the
+# FastAPI instance, shadowing the submodule for both attribute and dotted-string
+# access.
+_app_mod = sys.modules["aetherbus.replay_ui.backend.app"]
 
 
 class _FakeSub:
@@ -84,6 +91,50 @@ def test_index_serves_html(client: TestClient) -> None:
     resp = client.get("/")
     assert resp.status_code == 200
     assert "AetherBus Replay" in resp.text
+
+
+def _stub_client(tmp_path: Path) -> TestClient:
+    settings = Settings(
+        transport_url="nats://unused",
+        outbox_path=str(tmp_path / "ob.sqlite"),
+        stream_name="TEST_REPLAY_UI",
+        stream_subjects=("t.>",),
+    )
+    return TestClient(create_app(Bus(settings, transport=StubTransport())))
+
+
+def test_index_falls_back_to_jinja_when_spa_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No built SPA (a clean/git/sdist install) → `/` serves the Jinja viewer.
+
+    This is the packaging fallback the wheel fix relies on: the wheel can ship
+    without frontend/dist/, and the backend still serves a usable page.
+    """
+    missing = tmp_path / "no-such-dist"
+    monkeypatch.setattr(_app_mod, "SPA_INDEX", missing / "index.html")
+    monkeypatch.setattr(_app_mod, "SPA_ASSETS", missing / "assets")
+
+    resp = _stub_client(tmp_path).get("/")
+    assert resp.status_code == 200
+    # Marker unique to the Jinja template, absent from the built SPA index.
+    assert "M5a — minimal viewer" in resp.text
+
+
+def test_index_serves_spa_when_built(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A present dist/ (the release wheel) → `/` serves the built SPA instead."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>BUILT SPA</title>")
+    monkeypatch.setattr(_app_mod, "SPA_INDEX", dist / "index.html")
+    monkeypatch.setattr(_app_mod, "SPA_ASSETS", dist / "assets")
+
+    resp = _stub_client(tmp_path).get("/")
+    assert resp.status_code == 200
+    assert "BUILT SPA" in resp.text
+    assert "M5a — minimal viewer" not in resp.text
 
 
 def test_list_streams_returns_configured_stream(client: TestClient) -> None:

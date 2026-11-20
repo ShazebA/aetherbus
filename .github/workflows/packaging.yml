@@ -1,0 +1,57 @@
+name: packaging
+
+# Guards the "install straight from git" path: the wheel must build from a
+# clean checkout with no Node toolchain, and the installed package must import
+# without the built Replay UI SPA (the backend falls back to the Jinja viewer).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  wheel-clean-build:
+    name: Wheel builds + imports from a clean checkout (no Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Deliberately NO actions/setup-node: a git/sdist install has no JS
+      # toolchain, and the wheel must build anyway.
+      - name: Assert no built SPA is present (clean checkout)
+        run: |
+          if [ -e src/aetherbus/replay_ui/frontend/dist ]; then
+            echo "frontend/dist/ should not exist in a clean checkout" >&2
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.2,<2"
+          # Plain `python -m build` goes sdist -> wheel-from-sdist, exercising
+          # the full git/sdist install path. With `artifacts` (not the old
+          # `force-include`) a missing dist/ is a no-op, so this must succeed.
+          python -m build
+
+      - name: Install the built wheel into a fresh venv (replay + mcp extras)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          WHEEL="$(ls dist/*.whl | head -n1)"
+          echo "Installing $WHEEL[replay,mcp]"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install "${WHEEL}[replay,mcp]"
+
+      - name: Import the package from outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -c "
+          import aetherbus
+          import aetherbus.mcp_adapter
+          import aetherbus.replay_ui.backend
+          print('imported aetherbus from', aetherbus.__file__)
+          assert 'site-packages' in aetherbus.__file__, aetherbus.__file__
+          "

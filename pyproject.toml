@@ -36,7 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 kafka = ["aiokafka>=0.10"]
 mcp = ["mcp>=0.9"]
-replay = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12"]
+replay = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "websockets>=12", "jinja2>=3.1,<4"]
 langgraph = ["langgraph>=0.0.40"]
 crewai = ["crewai>=0.30"]
 openai = ["openai-agents>=0.0.1"]
@@ -58,6 +58,7 @@ dev = [
     "uvicorn[standard]>=0.29",  # `aetherbus-ui serve`
     "websockets>=12",  # WebSocket client for replay-tail tests
     "jinja2>=3.1",  # template engine for the minimal HTML viewer
+    "build>=1.2,<2",  # scripts/build-wheel.sh builds the SPA-bundled release wheel
 ]
 all = ["aetherbus[kafka,mcp,replay,langgraph,crewai,openai,vec,git]"]
 
@@ -78,9 +79,10 @@ Issues = "https://github.com/shazeb/aetherbus/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aetherbus"]
-# Strip frontend source from the wheel — only dist/ is useful at runtime.
-# Hatch by default sweeps the whole package tree; this excludes the noisy
-# bits while keeping dist/ via force-include below.
+# Strip frontend source from the wheel — only the built SPA under dist/ is
+# useful at runtime. Hatch sweeps the whole package tree by default; this
+# excludes the noisy source/config bits. The built dist/ is opted back in by
+# `artifacts` below.
 exclude = [
     "src/aetherbus/replay_ui/frontend/src/**",
     "src/aetherbus/replay_ui/frontend/node_modules/**",
@@ -94,12 +96,19 @@ exclude = [
     "src/aetherbus/replay_ui/frontend/postcss.config.js",
 ]
 
-# Bundle the built Replay UI SPA into the wheel when it exists. `force-include`
-# is a no-op for missing sources, so the wheel builds fine even before
-# `npm run build` has populated dist/. Release flow: scripts/build-wheel.sh
-# chains the SPA build + `hatch build`.
-[tool.hatch.build.targets.wheel.force-include]
-"src/aetherbus/replay_ui/frontend/dist" = "aetherbus/replay_ui/frontend/dist"
+# Bundle the built Replay UI SPA (src/aetherbus/replay_ui/frontend/dist/) into
+# the wheel. dist/ is gitignored and only exists after `npm run build`, so
+# hatch skips it as a VCS-ignored path unless it is opted back in here.
+#
+# `artifacts` is glob-based and — unlike `force-include` — tolerates a missing
+# source: on a clean checkout (no dist/) the pattern matches nothing and the
+# wheel still builds, so `pip install git+…` works and the backend serves the
+# Jinja fallback viewer. The release flow (scripts/build-wheel.sh) builds the
+# SPA first, so the pattern matches and the SPA ships in the wheel. Scoped to
+# the wheel target only; the sdist intentionally carries no built SPA.
+artifacts = [
+    "src/aetherbus/replay_ui/frontend/dist/**",
+]
 
 [tool.ruff]
 line-length = 100
