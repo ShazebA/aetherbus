@@ -8,6 +8,42 @@ Entries under `## [Unreleased]` describe work merged to `main` since the last mi
 
 ## [Unreleased]
 
+### Packaging — git-installable wheels (`feature/git-installable-wheel`)
+
+Make `pip install "aetherbus @ git+https://github.com/ShazebA/aetherbus.git"`
+work. Packaging only — no runtime behaviour changes.
+
+**Fixed**
+- Wheel builds failed from a clean checkout (and therefore every git/sdist
+  install) with hatchling `FileNotFoundError: Forced include not found`. The
+  wheel pulled the **gitignored** `src/aetherbus/replay_ui/frontend/dist/` in via
+  `[tool.hatch.build.targets.wheel.force-include]`, which hard-errors when the
+  source is missing — and `dist/` only exists after `npm run build`. Replaced it
+  with `artifacts = ["src/aetherbus/replay_ui/frontend/dist/**"]`, hatchling's
+  glob-based mechanism for VCS-ignored build outputs: a missing `dist/` is a
+  no-op (clean install → no SPA → the backend serves the Jinja fallback viewer),
+  while a built `dist/` is still bundled into release wheels. The comment that
+  wrongly claimed `force-include` "is a no-op for missing sources" is corrected.
+- `pip install aetherbus[replay]` + `aetherbus-ui serve` crashed serving the
+  fallback viewer: `jinja2` was only in the `dev` extra. Added `jinja2>=3.1,<4`
+  to the `replay` extra (it is imported at `create_app()` / module import).
+
+**Changed**
+- `scripts/build-wheel.sh` builds the wheel with `python -m build --wheel`
+  (`hatch` was not a declared dependency) and now fails loudly if the SPA build
+  produces no `dist/index.html`, or if the finished wheel does not contain
+  `aetherbus/replay_ui/frontend/dist/index.html` — a release can no longer
+  silently ship without the Replay UI.
+
+**Added**
+- `.github/workflows/packaging.yml` — CI job that builds a wheel from a clean
+  checkout **with no Node toolchain** and imports `aetherbus`,
+  `aetherbus.mcp_adapter`, and `aetherbus.replay_ui.backend` from the installed
+  wheel (outside the source tree).
+- Unit tests pinning the backend's SPA-present vs. Jinja-fallback rendering of
+  `/` (`tests/unit/test_replay_backend.py`).
+- `build>=1.2,<2` to the `dev` extra (used by `scripts/build-wheel.sh`).
+
 ### M8 — Run model + run-centric observability API (in flight on `feature/m8-run-model`)
 
 The post-v1.0 product pivot (Direction A — *agent observability + time-travel
